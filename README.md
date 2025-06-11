@@ -7,11 +7,9 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 - **Blockchain Security**: Land titles are secured by Algorand's blockchain technology
 - **NFT-Based Titles**: Each land title is represented as a unique NFT
 - **IPFS Storage**: Official documents are stored on IPFS for decentralized access
-- **Multi-Provider Support**: Supports both Pinata and Nodely IPFS providers
 - **Public Verification**: Anyone can verify land ownership using Asset IDs
 - **Instant Transfers**: Transfer land ownership through atomic blockchain transactions
 - **Admin Dashboard**: Authorized administrators can create new land title NFTs
-- **Migration Tools**: Built-in tools for migrating between IPFS providers
 
 ## Technology Stack
 
@@ -34,23 +32,15 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 - Pera Wallet for user authentication
 - AlgoNode API for blockchain access
 
-### IPFS Providers
-- **Pinata**: Legacy provider with full support
-- **Nodely**: New provider with enhanced features
-- **Dual Support**: Seamless switching between providers
-
 ## Project Structure
 
 ```
 /
 ├── src/                    # Frontend React application
 │   ├── components/         # React components
-│   │   └── admin/         # Admin-specific components
 │   ├── context/           # React context providers
 │   ├── services/          # API and blockchain services
-│   │   └── ipfs/          # IPFS provider architecture
-│   ├── types/             # TypeScript type definitions
-│   └── utils/             # Utility functions
+│   └── types/             # TypeScript type definitions
 ├── smart_contract/        # PyTEAL smart contract
 │   ├── app.py            # Main contract logic
 │   ├── deploy.py         # Deployment script
@@ -65,7 +55,7 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 1. **Node.js** (v18 or higher)
 2. **Python** (v3.8 or higher)
 3. **Pera Wallet** (mobile app or browser extension)
-4. **IPFS Provider Account** (Pinata or Nodely)
+4. **Pinata Account** (for IPFS storage)
 
 ### Frontend Setup
 
@@ -81,24 +71,13 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 
 3. **Configure environment variables**:
    ```env
-   # Basic Configuration
    VITE_ADMIN_ADDRESS=your_admin_wallet_address
    VITE_APP_ID=your_deployed_contract_app_id
    VITE_ALGOD_NODE_URL=https://testnet-api.algonode.cloud
    VITE_INDEXER_URL=https://testnet-idx.algonode.cloud
-
-   # IPFS Provider Selection
-   VITE_IPFS_PROVIDER=pinata  # or 'nodely'
-
-   # Pinata Configuration (if using Pinata)
    VITE_IPFS_GATEWAY_URL=https://gateway.pinata.cloud/ipfs/
    VITE_PINATA_API_KEY=your_pinata_api_key
    VITE_PINATA_SECRET_KEY=your_pinata_secret_key
-
-   # Nodely Configuration (if using Nodely)
-   VITE_NODELY_API_URL=https://api.nodely.io
-   VITE_NODELY_GATEWAY_URL=https://gateway.nodely.io/ipfs/
-   VITE_NODELY_API_KEY=your_nodely_api_key
    ```
 
 ### Smart Contract Setup
@@ -134,60 +113,19 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 
 2. **Open your browser** and navigate to `http://localhost:5173`
 
-## IPFS Provider Migration
-
-ArdhiChain supports seamless migration between IPFS providers. The application includes built-in tools for migrating content from Pinata to Nodely or vice versa.
-
-### Migration Features
-
-- **Dual Provider Support**: Run both providers simultaneously during migration
-- **Batch Migration**: Process large numbers of files in manageable batches
-- **Progress Tracking**: Monitor migration progress with detailed reporting
-- **Validation**: Verify content integrity after migration
-- **Rollback Support**: Revert to previous provider if issues occur
-
-### Using the Migration Dashboard
-
-1. **Access Admin Dashboard**: Connect with admin wallet and navigate to Admin → Migration
-2. **Configure Migration**: Select source and target providers
-3. **Add CIDs**: Enter the CIDs you want to migrate (one per line)
-4. **Start Migration**: Click "Start Migration" to begin the process
-5. **Monitor Progress**: View real-time progress and validation results
-
-### Programmatic Migration
-
-For large-scale migrations, use the programmatic interface:
-
-```typescript
-import { ContentMigrator } from './src/services/ipfs';
-
-const migrator = new ContentMigrator('pinata', 'nodely');
-const report = await migrator.migrateAllContent(['QmExample1...', 'QmExample2...']);
-console.log(`Migration completed: ${report.successCount}/${report.totalItems} successful`);
-```
-
-### Provider Health Monitoring
-
-The Admin Dashboard includes a health check feature that monitors:
-- Provider connectivity
-- Response times
-- Error rates
-- Service availability
-
 ## Usage Guide
 
 ### For Administrators
 
 1. **Connect Pera Wallet** with the admin address
 2. **Navigate to Admin Dashboard**
-3. **Create Land Titles**:
-   - Fill out the land title form
+3. **Fill out the land title form**:
+   - Official Land ID
+   - Location details
+   - Area information
+   - Municipality
    - Upload official document
-   - Submit to create NFT
-4. **Manage IPFS Infrastructure**:
-   - Monitor provider health
-   - Migrate content between providers
-   - Validate data integrity
+4. **Submit** to create a new land title NFT
 
 ### For Land Owners
 
@@ -220,24 +158,11 @@ The ArdhiChain smart contract (`app.py`) implements:
 
 ## IPFS Integration
 
-ArdhiChain uses IPFS for:
+ArdhiChain uses IPFS (via Pinata) for:
 
 - **Document Storage**: Official land registry documents
 - **Metadata Storage**: JSON files containing property details
 - **Decentralized Access**: Documents remain accessible without central servers
-- **Provider Flexibility**: Support for multiple IPFS providers
-
-### Supported Providers
-
-#### Pinata
-- Established IPFS provider
-- Reliable gateway network
-- Comprehensive API
-
-#### Nodely
-- Modern IPFS provider
-- Enhanced performance
-- Cost-effective pricing
 
 ## Development
 
@@ -261,30 +186,6 @@ The smart contract can be tested on Algorand TestNet. Make sure to:
 2. Deploy the contract using the deployment script
 3. Test all functionality through the frontend
 
-## Migration Best Practices
-
-1. **Test First**: Always test migration with a small subset of content
-2. **Backup Data**: Ensure all content is backed up before migration
-3. **Monitor Progress**: Use the built-in monitoring tools
-4. **Validate Results**: Verify content integrity after migration
-5. **Gradual Rollout**: Switch providers gradually to minimize risk
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Provider Connection Errors**: Check API keys and network connectivity
-2. **Migration Failures**: Verify source content accessibility
-3. **Upload Errors**: Check file size limits and formats
-4. **Wallet Connection**: Ensure Pera Wallet is properly configured
-
-### Error Recovery
-
-1. **Use Health Check**: Monitor provider status regularly
-2. **Check Logs**: Review browser console for detailed error messages
-3. **Retry Operations**: Most operations can be safely retried
-4. **Contact Support**: Reach out to provider support if issues persist
-
 ## Contributing
 
 1. Fork the repository
@@ -307,9 +208,6 @@ For issues and questions:
 
 ## Roadmap
 
-- [x] Multi-provider IPFS support
-- [x] Migration tools and dashboard
-- [x] Health monitoring
 - [ ] Multi-signature support for high-value transfers
 - [ ] Integration with additional IPFS providers
 - [ ] Mobile-first responsive design improvements
@@ -320,4 +218,4 @@ For issues and questions:
 
 ---
 
-**ArdhiChain** - Securing land ownership through blockchain technology with flexible IPFS infrastructure.
+**ArdhiChain** - Securing land ownership through blockchain technology.
