@@ -6,8 +6,9 @@ export interface LandTitle {
   municipality: string;
   documentHash: string;
   metadataUrl: string;
+  landPrice: number;
   owner: string;
-  createdAt?: string;
+  createdAt?: Date | string;
 }
 
 export interface TransferRequest {
@@ -30,6 +31,6 @@ export interface PropertyMetadata {
   location: string;
   area: string;
   municipality: string;
-  document_hash: string;
-  created_at: string;
+  documentHash: string;
+  createdAt?: Date | string;
 }

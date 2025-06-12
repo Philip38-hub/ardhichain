@@ -59,7 +59,7 @@ export class AlgorandService {
       
       // Create application call transaction
       const appCallTxn = algosdk.makeApplicationCallTxnFromObject({
-        from: account,
+        sender: account,
         appIndex: appId,
         onComplete: algosdk.OnApplicationComplete.NoOpOC,
         appArgs: [
@@ -71,13 +71,18 @@ export class AlgorandService {
       });
 
       const signedTxn = await peraWallet.signTransaction([appCallTxn]);
-      const { txId } = await algodClient.sendRawTransaction(signedTxn).do();
-      
+      const response = await algodClient.sendRawTransaction(signedTxn).do();
+      const txId = response.txid;
       await algosdk.waitForConfirmation(algodClient, txId, 4);
       
       // Get the created asset ID from the transaction
       const confirmedTxn = await algodClient.pendingTransactionInformation(txId).do();
-      const assetId = confirmedTxn['inner-txns']?.[0]?.['created-asset-index'];
+      const innerTxns = (confirmedTxn as any).innerTxnResults as { txn: { txn: any } }[];
+      const assetId = innerTxns?.[0]?.txn?.txn?.['created-asset-index'];
+      
+      if (!assetId) {
+        throw new Error('Failed to get created asset ID from transaction');
+      }
       
       return assetId;
     } catch (error) {
@@ -97,15 +102,16 @@ export class AlgorandService {
 
       // Create asset transfer transaction
       const transferTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from,
-        to,
+        sender: from,
+        receiver: to,
         assetIndex: assetId,
         amount: 1,
         suggestedParams
       });
 
       const signedTxn = await peraWallet.signTransaction([transferTxn]);
-      const { txId } = await algodClient.sendRawTransaction(signedTxn).do();
+      const response = await algodClient.sendRawTransaction(signedTxn).do();
+      const txId = response.txid;
       
       await algosdk.waitForConfirmation(algodClient, txId, 4);
       return txId;
@@ -124,15 +130,16 @@ export class AlgorandService {
       const suggestedParams = await algodClient.getTransactionParams().do();
 
       const optInTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from: account,
-        to: account,
+        sender: account,
+        receiver: account,
         assetIndex: assetId,
         amount: 0,
         suggestedParams
       });
-
+      
       const signedTxn = await peraWallet.signTransaction([optInTxn]);
-      const { txId } = await algodClient.sendRawTransaction(signedTxn).do();
+      const response = await algodClient.sendRawTransaction(signedTxn).do();
+      const txId = response.txid;
       
       await algosdk.waitForConfirmation(algodClient, txId, 4);
       return txId;
