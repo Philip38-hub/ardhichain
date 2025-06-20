@@ -112,27 +112,55 @@ export class AlgorandService {
         console.log("Requesting signature from wallet...");
         
         // Format transaction for Pera Wallet according to documentation
-        // The correct format is SignerTransaction[][]
-        const txnToSign = [
-          [
-            {
-              txn: appCallTxn,
-              signers: [account]
-            }
-          ]
+        // The correct format is an array of transaction groups
+        // Each transaction group is an array of SignerTransaction objects
+        const singleTxnGroup = [
+          {
+            txn: appCallTxn,
+            signers: [account]
+          }
         ];
         
-        console.log("Transaction format for signing:", safeStringify({
-          type: typeof txnToSign,
-          isArray: Array.isArray(txnToSign),
-          length: txnToSign.length,
-          innerType: txnToSign[0] ? typeof txnToSign[0] : 'undefined',
-          innerIsArray: txnToSign[0] ? Array.isArray(txnToSign[0]) : false
-        }));
+        console.log("Transaction prepared for signing:");
+        console.log("- Transaction type:", typeof appCallTxn);
+        console.log("- Transaction group format:", Array.isArray(singleTxnGroup));
         
-        // Sign the transaction
-        const signedTxns = await peraWallet.signTransaction(txnToSign);
-        console.log("Transaction signed successfully");
+        // Add a message for mobile users
+        console.log("Please check your Pera Wallet mobile app to sign the transaction");
+        console.log("If the app doesn't open automatically, please open it manually and check for pending transactions");
+        
+        // Sign the transaction with simplified approach
+        let signedTxns;
+        try {
+          // First, check if the transaction is properly formatted
+          if (!appCallTxn || typeof appCallTxn !== 'object') {
+            throw new Error('Invalid transaction object');
+          }
+          
+          // Log the exact transaction format we're sending to Pera Wallet
+          console.log("Calling peraWallet.signTransaction with transaction group");
+          
+          // Use the format directly from Pera Wallet examples
+          signedTxns = await peraWallet.signTransaction([singleTxnGroup]);
+          
+          console.log("Transaction signed successfully!");
+          console.log("Signed transaction type:", typeof signedTxns);
+          console.log("Is array:", Array.isArray(signedTxns));
+          console.log("Length:", signedTxns ? signedTxns.length : 0);
+        } catch (error) {
+          console.error("Error during transaction signing:", error);
+          if (error instanceof Error) {
+            console.error("Error message:", error.message);
+            console.error("Error stack:", error.stack);
+            
+            // Check for specific error types
+            if (error.message.includes('getEncodingSchema')) {
+              throw new Error('Transaction format error: The transaction object may not be compatible with Pera Wallet. Please ensure you have the latest version of the Pera Wallet app installed.');
+            }
+          }
+          throw new Error(`Transaction signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`); 
+        }
+        console.log("Transaction signed successfully!");
         console.log("Signed transaction type:", typeof signedTxns);
         console.log("Is array:", Array.isArray(signedTxns));
         console.log("Length:", signedTxns ? signedTxns.length : 0);
@@ -144,24 +172,56 @@ export class AlgorandService {
         // Send the signed transaction
         console.log("Sending signed transaction to network...");
         
-        // Extract the signed transaction bytes from the nested structure
-        // Pera Wallet returns a structure like [[Uint8Array]] for a single transaction
+        // Handle the signed transaction based on its structure
+        // Pera Wallet typically returns a nested array structure
         let signedTxnToSend;
+        let txId;
         
-        if (Array.isArray(signedTxns[0])) {
-          // If it's a nested array, get the first element
-          signedTxnToSend = signedTxns[0];
-        } else {
-          // If it's already flattened
-          signedTxnToSend = signedTxns;
+        try {
+          // First try to flatten the array to handle any nesting
+          if (Array.isArray(signedTxns)) {
+            if (signedTxns.length > 0 && Array.isArray(signedTxns[0])) {
+              // It's a nested array structure like [[Uint8Array]]
+              signedTxnToSend = signedTxns[0];
+              console.log("Using first element of nested array structure");
+            } else {
+              // It's already a flat array
+              signedTxnToSend = signedTxns;
+              console.log("Using flat array structure");
+            }
+          } else {
+            // It's not an array at all
+            signedTxnToSend = signedTxns;
+            console.log("Using non-array structure");
+          }
+          
+          console.log("Prepared transaction for sending:");
+          console.log("- Type:", typeof signedTxnToSend);
+          console.log("- Is array:", Array.isArray(signedTxnToSend));
+          console.log("- Length (if array):", Array.isArray(signedTxnToSend) ? signedTxnToSend.length : 'N/A');
+          
+          // Send the transaction to the network
+          txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
+          console.log("Transaction sent with ID:", txId.txid);
+        } catch (error) {
+          console.error("Error sending transaction to network:", error);
+          
+          // Try alternative approach if the first one fails
+          console.log("Trying alternative approach to send transaction...");
+          
+          try {
+            // Try to use the flattened array approach from Pera Wallet docs
+            const flattenedTxns = Array.isArray(signedTxns) ? signedTxns.flat() : signedTxns;
+            console.log("Flattened transaction type:", typeof flattenedTxns);
+            
+            // Send the transaction to the network
+            txId = await algodClient.sendRawTransaction(flattenedTxns).do();
+            console.log("Transaction sent with ID (alternative method):", txId.txid);
+          } catch (innerError) {
+            console.error("Both transaction sending methods failed:", innerError);
+            throw new Error(`Failed to send transaction to network: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`);
+          }
         }
-        
-        console.log("Prepared transaction for sending, type:", typeof signedTxnToSend);
-        console.log("Is array:", Array.isArray(signedTxnToSend));
-        
-        // Send the transaction to the network
-        const txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
-        console.log("Transaction sent with ID:", txId.txid);
         
         // Wait for confirmation
         console.log("Waiting for confirmation...");
