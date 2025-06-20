@@ -116,6 +116,10 @@ export const AdminDashboard: React.FC = () => {
           message = 'Transaction was rejected in the Pera Wallet app.';
         } else if (error.message.includes('getEncodingSchema')) {
           message = 'Error with transaction format. Please ensure your Pera Wallet app is up to date.';
+        } else if (error.message.includes('Insufficient funds') || error.message.includes('overspend')) {
+          message = 'Your wallet does not have enough Algos to complete this transaction. Please fund your wallet with at least 0.001 Algos and try again.';
+        } else if (error.message.includes('TransactionPool.Remember')) {
+          message = 'Transaction failed: Your wallet may not have enough Algos to pay the transaction fee. Please fund your wallet and try again.';
         } else {
           message = `Error: ${error.message}`;
         }

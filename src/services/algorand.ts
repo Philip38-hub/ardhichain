@@ -70,32 +70,105 @@ export class AlgorandService {
       console.log("Land ID:", landId);
       console.log("Metadata URL:", metadataUrl);
       
-      // Get transaction parameters
+      // Check account balance first
+      try {
+        console.log("Checking account balance...");
+        const accountInfo = await algodClient.accountInformation(account).do();
+        const balance = accountInfo.amount;
+        console.log(`Account balance: ${balance} microAlgos`);
+        
+        // We need at least 2000 microAlgos for transaction fees (1000 for app call + 1000 for potential contract funding)
+        const minRequired = 2000;
+        if (balance < minRequired) {
+          throw new Error(`Insufficient funds: Account has ${balance} microAlgos, but at least ${minRequired} microAlgos are required for the transaction fees. Please fund your account.`);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Insufficient funds')) {
+          throw error; // Re-throw our custom error
+        }
+        console.error("Error checking account balance:", error);
+        // Continue even if we can't check the balance, the transaction will fail later if insufficient
+      }
+      
+      // Get suggested parameters for the transaction
       const suggestedParams = await algodClient.getTransactionParams().do();
       console.log("Got suggested params:", safeStringify(suggestedParams));
       
+      // Get the application ID from environment variables
       const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
       console.log("Using app ID:", appId);
-
-      if (!appId) {
-        throw new Error('App ID not found in environment variables');
+      
+      // Check if the contract needs funding
+      // Get the application address
+      const appAddress = algosdk.getApplicationAddress(appId);
+      console.log("Smart contract address:", appAddress);
+      
+      try {
+        const contractInfo = await algodClient.accountInformation(appAddress).do();
+        console.log(`Contract balance: ${contractInfo.amount} microAlgos`);
+        
+        // If contract has less than 100000 microAlgos (0.1 Algo), fund it
+        const minContractBalance = 100000; // 0.1 Algos
+        if (contractInfo.amount < minContractBalance) {
+          console.log("Contract needs funding. Preparing funding transaction...");
+          
+          // Create funding transaction
+          const fundingAmount = 200000; // 0.2 Algos
+          // Create payment transaction
+          const fundingTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+            suggestedParams: suggestedParams,
+            sender: account,
+            receiver: appAddress,
+            amount: fundingAmount
+          });
+          
+          // Sign and send funding transaction
+          console.log("Requesting signature for funding transaction...");
+          // Format transaction for Pera Wallet
+          const fundingTxnGroup = [{ txn: fundingTxn, signers: [account] }];
+          const signedFundingTxn = await peraWallet.signTransaction([fundingTxnGroup]);
+          
+          console.log("Sending funding transaction to network...");
+          // Pera Wallet returns a nested array structure, so we need to flatten it
+          const flattenedSignedFundingTxn = Array.isArray(signedFundingTxn) ? signedFundingTxn.flat() : signedFundingTxn;
+          const fundingTxnResult = await algodClient.sendRawTransaction(flattenedSignedFundingTxn).do();
+          console.log("Funding transaction sent with ID:", fundingTxnResult.txid);
+          
+          // Wait for confirmation
+          await algosdk.waitForConfirmation(algodClient, fundingTxnResult.txid, 4);
+          console.log("Funding transaction confirmed");
+        } else {
+          console.log("Contract has sufficient balance, no funding needed");
+        }
+      } catch (error) {
+        console.error("Error checking or funding contract:", error);
+        // Continue anyway, the transaction might still succeed
       }
 
       // Create the application call transaction
       console.log("Creating application call transaction...");
       
-      // Create application args as Uint8Array
-      const createTitleArg = new Uint8Array(Buffer.from('create_title'));
-      const landIdArg = new Uint8Array(Buffer.from(landId));
-      const metadataUrlArg = new Uint8Array(Buffer.from(metadataUrl));
+      // We'll use a simpler approach without ABI to avoid compatibility issues with Pera Wallet
+      // This approach uses direct method name and arguments encoding
       
-      // Create the transaction object
+      // Create the transaction object with explicit fee
+      const modifiedParams = {...suggestedParams};
+      modifiedParams.fee = BigInt(1000); // Minimum fee in microAlgos
+      modifiedParams.flatFee = true; // Use flat fee instead of per-byte fee
+      
+      console.log("Using modified params with explicit fee:", safeStringify(modifiedParams));
+      
+      // Create the application call transaction with simple method name and arguments
       const appCallTxn = algosdk.makeApplicationCallTxnFromObject({
+        suggestedParams: modifiedParams,
         sender: account,
         appIndex: appId,
         onComplete: algosdk.OnApplicationComplete.NoOpOC,
-        appArgs: [createTitleArg, landIdArg, metadataUrlArg],
-        suggestedParams: suggestedParams
+        appArgs: [
+          new Uint8Array(Buffer.from('create_title')),
+          new Uint8Array(Buffer.from(landId)),
+          new Uint8Array(Buffer.from(metadataUrl))
+        ]
       });
 
       console.log("Transaction created successfully");
@@ -257,13 +330,27 @@ export class AlgorandService {
         }
         
         return assetId;
-      } catch (error: any) {
+      } catch (error) {
         console.error("Error during transaction signing or sending:", error);
         if (error instanceof Error) {
           console.error("Error message:", error.message);
           console.error("Error stack:", error.stack);
+          
+          // Handle specific errors with more helpful messages
+          if (error.message.includes('overspend') || error.message.includes('Insufficient funds')) {
+            throw new Error(
+              'Insufficient funds: Your wallet does not have enough Algos to pay the transaction fee. ' +
+              'To fund your wallet, you can use the Algorand TestNet Dispenser at https://bank.testnet.algorand.network/ ' +
+              'or request funds from the Algorand TestNet Discord.'
+            );
+          } else if (error.message.includes('TransactionPool.Remember')) {
+            throw new Error(
+              'Transaction rejected by the network. This may be due to insufficient funds. ' +
+              'Please ensure your wallet has at least 0.001 Algos to cover the transaction fee.'
+            );
+          }
         }
-        throw new Error(`Transaction failed: ${error?.message || safeStringify(error) || 'Unknown error'}`);
+        throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } catch (error) {
       // Enhanced error logging
