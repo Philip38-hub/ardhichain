@@ -110,32 +110,18 @@ export class AlgorandService {
         
         // Sign the transaction using PeraWallet Connect
         console.log("Requesting signature from wallet...");
+        console.log("About to call peraWallet.signTransaction with transaction");
         
-        // Format transaction for Pera Wallet according to documentation
-        // The correct format is SignerTransaction[][]
-        const txnToSign = [
-          [
-            {
-              txn: appCallTxn,
-              signers: [account]
-            }
-          ]
-        ];
+        // Format the transaction according to Pera Wallet documentation
+        // signTransaction expects SignerTransaction[][] format
+        const txnToBeSigned = [{txn: appCallTxn, signers: [account]}];
         
-        console.log("Transaction format for signing:", safeStringify({
-          type: typeof txnToSign,
-          isArray: Array.isArray(txnToSign),
-          length: txnToSign.length,
-          innerType: txnToSign[0] ? typeof txnToSign[0] : 'undefined',
-          innerIsArray: txnToSign[0] ? Array.isArray(txnToSign[0]) : false
-        }));
+        // Log the transaction before signing for debugging
+        console.log("Transaction to be signed:", safeStringify(txnToBeSigned));
         
         // Sign the transaction
-        const signedTxns = await peraWallet.signTransaction(txnToSign);
-        console.log("Transaction signed successfully");
-        console.log("Signed transaction type:", typeof signedTxns);
-        console.log("Is array:", Array.isArray(signedTxns));
-        console.log("Length:", signedTxns ? signedTxns.length : 0);
+        const signedTxns = await peraWallet.signTransaction([[{txn: appCallTxn, signers: [account]}]]);
+        console.log("Transaction signed successfully", safeStringify(signedTxns));
         
         if (!signedTxns || signedTxns.length === 0) {
           throw new Error('No signed transaction returned from wallet');
@@ -144,20 +130,8 @@ export class AlgorandService {
         // Send the signed transaction
         console.log("Sending signed transaction to network...");
         
-        // Extract the signed transaction bytes from the nested structure
-        // Pera Wallet returns a structure like [[Uint8Array]] for a single transaction
-        let signedTxnToSend;
-        
-        if (Array.isArray(signedTxns[0])) {
-          // If it's a nested array, get the first element
-          signedTxnToSend = signedTxns[0];
-        } else {
-          // If it's already flattened
-          signedTxnToSend = signedTxns;
-        }
-        
-        console.log("Prepared transaction for sending, type:", typeof signedTxnToSend);
-        console.log("Is array:", Array.isArray(signedTxnToSend));
+        // Process the signed transactions - Pera Wallet returns the raw signed transaction bytes
+        const signedTxnToSend = signedTxns[0];
         
         // Send the transaction to the network
         const txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
@@ -223,6 +197,143 @@ export class AlgorandService {
     }
   }
 
-  // Keep the rest of the class methods as they are
-  // ...
+  static async transferAsset(
+    from: string,
+    to: string,
+    assetId: number,
+    peraWallet: any
+  ): Promise<string> {
+    try {
+      console.log(`Transferring asset ${assetId} from ${from} to ${to}`);
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      console.log("Got suggested params:", safeStringify(suggestedParams));
+
+      // Create the asset transfer transaction
+      console.log("Creating asset transfer transaction...");
+      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        sender: from,
+        receiver: to,
+        assetIndex: assetId,
+        amount: 1,
+        suggestedParams
+      });
+      console.log("Transaction created successfully");
+
+      try {
+        // Check if wallet is connected before signing
+        if (!peraWallet || typeof peraWallet.signTransaction !== 'function') {
+          console.error("PeraWallet not properly initialized or connected");
+          console.log("PeraWallet object:", safeStringify(peraWallet));
+          throw new Error('Wallet not connected or initialized properly');
+        }
+        
+        // Sign the transaction using PeraWallet Connect
+        console.log("Requesting signature from wallet...");
+        console.log("About to call peraWallet.signTransaction with transaction");
+        const signedTxns = await peraWallet.signTransaction([txn]);
+        console.log("Transaction signed successfully", safeStringify(signedTxns));
+        
+        if (!signedTxns || signedTxns.length === 0) {
+          throw new Error('No signed transaction returned from wallet');
+        }
+        
+        // Send the signed transaction
+        console.log("Sending signed transaction to network...");
+        
+        // Process the signed transactions - Pera Wallet returns the raw signed transaction bytes
+        const signedTxnToSend = signedTxns[0];
+        
+        // Send the transaction to the network
+        const txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
+        console.log("Transaction sent with ID:", txId.txid);
+        
+        // Wait for confirmation
+        console.log("Waiting for confirmation...");
+        const confirmedTxn = await algosdk.waitForConfirmation(algodClient, txId.txid, 4);
+        console.log("Transaction confirmed:", safeStringify(confirmedTxn));
+        
+        return txId.txid;
+      } catch (error: any) {
+        console.error("Error during transaction signing or sending:", error);
+        if (error instanceof Error) {
+          console.error("Error message:", error.message);
+          console.error("Error stack:", error.stack);
+        }
+        throw new Error(`Transaction failed: ${error?.message || safeStringify(error) || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error transferring asset:', error);
+      throw error;
+    }
+  }
+
+
+  static async optInToAsset(
+    account: string,
+    assetId: number,
+    peraWallet: any
+  ): Promise<string> {
+    try {
+      console.log(`Opting in to asset ${assetId} for account ${account}`);
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      console.log("Got suggested params:", safeStringify(suggestedParams));
+
+      // Create the opt-in transaction (0 amount to self)
+      console.log("Creating opt-in transaction...");
+      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        sender: account,
+        receiver: account,
+        assetIndex: assetId,
+        amount: 0,
+        suggestedParams
+      });
+      console.log("Transaction created successfully");
+
+      try {
+        // Check if wallet is connected before signing
+        if (!peraWallet || typeof peraWallet.signTransaction !== 'function') {
+          console.error("PeraWallet not properly initialized or connected");
+          console.log("PeraWallet object:", safeStringify(peraWallet));
+          throw new Error('Wallet not connected or initialized properly');
+        }
+        
+        // Sign the transaction using PeraWallet Connect
+        console.log("Requesting signature from wallet...");
+        console.log("About to call peraWallet.signTransaction with transaction");
+        const signedTxns = await peraWallet.signTransaction([txn]);
+        console.log("Transaction signed successfully", safeStringify(signedTxns));
+        
+        if (!signedTxns || signedTxns.length === 0) {
+          throw new Error('No signed transaction returned from wallet');
+        }
+        
+        // Send the signed transaction
+        console.log("Sending signed transaction to network...");
+        
+        // Process the signed transactions - Pera Wallet returns the raw signed transaction bytes
+        const signedTxnToSend = signedTxns[0];
+        
+        // Send the transaction to the network
+        const txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
+        console.log("Transaction sent with ID:", txId.txid);
+        
+        // Wait for confirmation
+        console.log("Waiting for confirmation...");
+        const confirmedTxn = await algosdk.waitForConfirmation(algodClient, txId.txid, 4);
+        console.log("Transaction confirmed:", safeStringify(confirmedTxn));
+        
+        return txId.txid;
+      } catch (error: any) {
+        console.error("Error during transaction signing or sending:", error);
+        if (error instanceof Error) {
+          console.error("Error message:", error.message);
+          console.error("Error stack:", error.stack);
+        }
+        throw new Error(`Transaction failed: ${error?.message || safeStringify(error) || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error opting in to asset:', error);
+      throw error;
+    }
+  }
 }

@@ -67,6 +67,7 @@ ArdhiChain is a decentralized land registry application built on the Algorand bl
 2. **Create environment file**:
    ```bash
    cp .env.example .env
+
    ```
 
 3. **Configure environment variables**:

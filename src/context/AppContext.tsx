@@ -4,15 +4,7 @@ import { AppContextType } from '../types';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const peraWallet = new PeraWalletConnect({
-  projectId: 'ardhichain-land-registry',
-  projectMeta: {
-    name: 'ArdhiChain',
-    description: 'Decentralized Land Registry on Algorand',
-    url: 'https://ardhichain.app',
-    icons: ['https://pera-wallet.perawallet.app/icons/icon-192.png']
-  }
-});
+const peraWallet = new PeraWalletConnect({});
 
 interface AppProviderProps {
   children: ReactNode;

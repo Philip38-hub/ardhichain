@@ -1,0 +1,14 @@
+from algosdk import account, mnemonic
+
+# Generate a new account
+private_key, address = account.generate_account()
+
+# Get the mnemonic (recovery phrase) for the account
+mnemonic_phrase = mnemonic.from_private_key(private_key)
+
+# Print the information
+print(f"Address: {address}")
+print(f"Private Key: {private_key}")
+print(f"Mnemonic: {mnemonic_phrase}")
+
+# Save this information securely!
