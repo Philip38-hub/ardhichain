@@ -313,29 +313,130 @@ export class AlgorandService {
       
       // Find the asset creation transaction
       let assetId = 0;
+      
+      // Attempt to extract asset ID from inner transactions
       for (const innerTxn of innerTxns) {
-        const innerTxnAny = innerTxn as any;
-        if (innerTxnAny['asset-config-transaction'] && innerTxnAny['created-asset-index']) {
-          assetId = innerTxnAny['created-asset-index'];
-          console.log("Found created asset ID:", assetId);
-          break;
+        const txnData = innerTxn as any;
+        console.log("Processing inner transaction:", safeStringify(txnData));
+        
+        try {
+          // First, check the direct assetIndex field (most common)
+          if (txnData.assetIndex) {
+            assetId = parseInt(txnData.assetIndex);
+            console.log("Found asset ID in assetIndex field:", assetId);
+            break;
+          }
+
+          // Check if this is an asset config transaction
+          if (txnData.txn?.txn?.type === 'acfg') {
+            // For asset creation, try different possible locations
+            if (txnData.txn.txn.assetConfig?.assetIndex === "0") {
+              // This is an asset creation transaction
+              if (txnData.assetIndex) {
+                assetId = parseInt(txnData.assetIndex);
+                console.log("Found asset ID in asset creation response:", assetId);
+                break;
+              }
+            }
+            
+            // Log asset config details for debugging
+            console.log("Asset config details:", safeStringify(txnData.txn.txn.assetConfig));
+          }
+        } catch (error) {
+          console.log("Error processing inner transaction:", error);
+          console.log("Problematic transaction:", safeStringify(txnData));
         }
       }
       
       if (!assetId) {
-        // If not found in inner transactions, check the main transaction
-        const txnResponse = confirmedTxn as any;
-        console.log("Checking main transaction for asset ID");
-        assetId = txnResponse['created-asset-index'] ?? txnResponse.createdAssetIndex ?? 0;
+        // Enhanced error handling with transaction analysis
+        console.log("Asset ID not found in expected location");
+        console.log("Full transaction details:", safeStringify(confirmedTxn));
         
-        if (assetId) {
-          console.log("Asset created with ID:", assetId);
-        } else {
-          throw new Error('No asset was created in this transaction');
+        // Check if we have any inner transactions
+        if (!innerTxns || innerTxns.length === 0) {
+          throw new Error(
+            'No inner transactions found in response. This may indicate the smart contract ' +
+            'did not complete the asset creation. Please check the contract logs.'
+          );
+        }
+
+        // Log all transaction types for debugging
+        console.log("Inner transaction types:", innerTxns.map(txn => {
+          const txnData = txn as any;
+          return `${txnData.txn?.txn?.type || 'unknown'} (${txnData.txn?.txn?.assetIndex || 'no index'})`;
+        }));
+
+        throw new Error(
+          'Could not find asset creation transaction in response. Transaction completed but ' +
+          'asset creation may have failed. Please check the smart contract logs.'
+        );
+      }
+      
+      console.log("Successfully created asset with ID:", assetId);
+      
+      // Verify the asset with retries
+      const maxRetries = 3;
+      const retryDelay = 1000; // 1 second
+      
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          console.log(`Attempting to verify asset ${assetId} (attempt ${i + 1}/${maxRetries})...`);
+          const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
+          const params = assetInfo.asset.params;
+          
+          console.log("Asset verification result:", {
+            found: {
+              name: params.name,
+              unitName: params.unitName,
+              url: params.url,
+              total: params.total,
+              decimals: params.decimals,
+              defaultFrozen: params.defaultFrozen
+            },
+            expected: {
+              name: landId,
+              url: metadataUrl.replace('ipfs://', '')
+            }
+          });
+          
+          if (params.name === landId && params.url === metadataUrl.replace('ipfs://', '')) {
+            console.log("Asset verified successfully - all parameters match");
+            return assetId;
+          }
+          
+          console.log("Asset parameters don't match expectations, waiting before retry...");
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        } catch (error) {
+          console.log(`Verification attempt ${i + 1} failed:`, error);
+          if (i < maxRetries - 1) {
+            console.log(`Waiting ${retryDelay}ms before retrying...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
         }
       }
       
-      return assetId;
+      // If we got here, return the asset ID but warn that verification failed
+      console.log("Warning: Asset was created but verification failed or parameters didn't match");
+      console.log("The asset may take a few seconds to appear correctly in the indexer");
+      // Return the asset ID with warning status and explorer URLs
+      const warningMsg = `Asset was created but verification is pending. ` +
+                        `It may take a few seconds to appear in the indexer.\n` +
+                        `Asset ID: ${assetId}\n` +
+                        `Check the transaction: https://testnet.algoexplorer.io/tx/${result.txIDs[0]}\n` +
+                        `Check the asset: https://testnet.algoexplorer.io/asset/${assetId}`;
+      console.log(warningMsg);
+      
+      // Add some context to the returned error
+      const err = new Error(warningMsg) as any;
+      err.assetId = assetId;
+      err.txnId = result.txIDs[0];
+      err.status = 'PENDING_VERIFICATION';
+      err.explorerUrls = {
+        transaction: `https://testnet.algoexplorer.io/tx/${result.txIDs[0]}`,
+        asset: `https://testnet.algoexplorer.io/asset/${assetId}`
+      };
+      throw err;
     } catch (error: unknown) {
       console.error("Error during transaction signing or sending:", error);
       if (error instanceof Error) {
@@ -366,6 +467,12 @@ export class AlgorandService {
           throw new Error(
             'Transaction rejected by the network. This could be due to insufficient funds or other issues. ' +
             'Please ensure all accounts have sufficient balance and try again.'
+          );
+        } else if (error.message.includes('timeout') || error.message.includes('network') || error.message.includes('failed to fetch')) {
+          throw new Error(
+            'Network issue encountered while creating title. If you received an asset ID, you can verify the ' +
+            'status manually at: https://testnet.algoexplorer.io/ \n' +
+            'Please check your connection and try again if needed.'
           );
         }
       }
