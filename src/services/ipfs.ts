@@ -22,7 +22,7 @@ export class IPFSService {
 
     try {
       const response = await axios.post(
-        `${this.NODELY_API_URL}/v1/upload`,
+        `${this.NODELY_API_URL}/upload`,
         formData,
         {
           headers: {
@@ -56,7 +56,7 @@ export class IPFSService {
   static async uploadJSON(metadata: PropertyMetadata): Promise<string> {
     try {
       const response = await axios.post(
-        `${this.NODELY_API_URL}/v1/upload/json`,
+        `${this.NODELY_API_URL}/upload/json`,
         {
           name: `ArdhiChain-${metadata.land_id}-metadata.json`,
           description: `Metadata for land title: ${metadata.land_id}`,
@@ -127,7 +127,7 @@ export class IPFSService {
   // Health check method to verify Nodely service availability
   static async healthCheck(): Promise<boolean> {
     try {
-      const response = await axios.get(`${this.NODELY_API_URL}/v1/health`, {
+      const response = await axios.get(`${this.NODELY_API_URL}/health`, {
         headers: this.getAuthHeaders(),
         timeout: 5000
       });
