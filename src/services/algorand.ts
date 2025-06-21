@@ -41,7 +41,12 @@ export class AlgorandService {
       const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
       return assetInfo.asset;
     } catch (error) {
-      console.error('Error fetching asset info:', error);
+      // Check if this is a 404 error (asset not found)
+      if (error instanceof Error && error.message.includes('status 404')) {
+        console.warn(`Asset not found for asset-id: ${assetId}`);
+      } else {
+        console.error('Error fetching asset info:', error);
+      }
       return null;
     }
   }
