@@ -13,16 +13,23 @@ function safeStringify(obj: any): string {
   });
 }
 
+// Add common headers to identify the client application
+const commonHeaders = {
+  'User-Agent': 'LandTitle-DApp/1.0.0'
+};
+
 const algodClient = new algosdk.Algodv2(
   '',
   import.meta.env.VITE_ALGOD_NODE_URL,
-  undefined
+  undefined,
+  commonHeaders
 );
 
 const indexerClient = new algosdk.Indexer(
   '',
   import.meta.env.VITE_INDEXER_URL,
-  undefined
+  undefined,
+  commonHeaders
 );
 
 export class AlgorandService {
