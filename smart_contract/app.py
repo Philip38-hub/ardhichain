@@ -45,7 +45,12 @@ def create(admin_addr: abi.Address) -> Expr:
     ])
 
 @app.external
-def create_title(land_id: abi.String, metadata_url: abi.String) -> Expr:
+def create_title(
+    land_id: abi.String,
+    metadata_url: abi.String,
+    *,
+    output: abi.Uint64
+) -> Expr:
     """
     Creates a new Land Title NFT (ASA).
     Only the admin can call this method.
@@ -78,13 +83,30 @@ def create_title(land_id: abi.String, metadata_url: abi.String) -> Expr:
         }),
         InnerTxnBuilder.Submit(),
         
-        # Transfer the newly minted NFT to the admin
+        # Store created asset ID in the output
+        output.set(InnerTxn.created_asset_id()),
+        
+        Approve()
+    ])
+
+@app.external
+def transfer_title(asset_id: abi.Uint64, receiver: abi.Address) -> Expr:
+    """
+    Transfer an NFT to a receiver.
+    The receiver must have already opted in to the asset.
+    
+    Args:
+        asset_id: The ID of the NFT to transfer
+        receiver: The address to receive the NFT
+    """
+    return Seq([
+        # Only contract can transfer the NFT since it's the manager
         InnerTxnBuilder.Begin(),
         InnerTxnBuilder.SetFields({
             TxnField.type_enum: TxnType.AssetTransfer,
-            TxnField.asset_receiver: app.state.admin_address.get(),
+            TxnField.asset_receiver: receiver.get(),
             TxnField.asset_sender: Global.current_application_address(),
-            TxnField.xfer_asset: InnerTxn.created_asset_id(),
+            TxnField.xfer_asset: asset_id.get(),
             TxnField.asset_amount: Int(1)
         }),
         InnerTxnBuilder.Submit(),
@@ -114,12 +136,14 @@ def verify_record(asa_id: abi.Uint64, *, output: abi.Address) -> Expr:
         Approve()
     ])
 
-@app.external(read_only=True) 
-def get_admin() -> Expr:
+@app.external(read_only=True)
+def get_admin(*, output: abi.Address) -> Expr:
     """
     Returns the current admin address.
+    Args:
+        output: The output parameter to store the admin address
     """
-    return app.state.admin_address.get()
+    return output.set(app.state.admin_address.get())
 
 # Deployment configuration
 if __name__ == "__main__":

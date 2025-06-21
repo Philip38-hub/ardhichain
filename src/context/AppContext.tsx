@@ -4,14 +4,10 @@ import { AppContextType } from '../types';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// Initialize Pera Wallet with configuration options
 const peraWallet = new PeraWalletConnect({
-  projectId: 'ardhichain-land-registry',
-  projectMeta: {
-    name: 'ArdhiChain',
-    description: 'Decentralized Land Registry on Algorand',
-    url: 'https://ardhichain.app',
-    icons: ['https://pera-wallet.perawallet.app/icons/icon-192.png']
-  }
+  shouldShowSignTxnToast: true,
+  chainId: 416002 // Algorand TestNet chain ID
 });
 
 interface AppProviderProps {
@@ -43,13 +39,37 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     });
   }, []);
 
+  const [connectionInProgress, setConnectionInProgress] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
   const connectWallet = async () => {
     try {
+      setConnectionInProgress(true);
+      setConnectionError(null);
+      
+      console.log('Initiating Pera Wallet connection...');
       const accounts = await peraWallet.connect();
-      setAccount(accounts[0]);
-      setIsConnected(true);
+      
+      console.log('Connected accounts:', accounts);
+      if (accounts && accounts.length > 0) {
+        setAccount(accounts[0]);
+        setIsConnected(true);
+        console.log('Wallet connected successfully');
+      } else {
+        setConnectionError('No accounts returned from wallet');
+        console.error('No accounts returned from wallet');
+      }
     } catch (error) {
       console.error('Failed to connect wallet:', error);
+      let errorMessage = 'Failed to connect to wallet';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      setConnectionError(errorMessage);
+    } finally {
+      setConnectionInProgress(false);
     }
   };
 
@@ -65,7 +85,9 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     isAdmin,
     peraWallet,
     connectWallet,
-    disconnectWallet
+    disconnectWallet,
+    connectionInProgress,
+    connectionError
   };
 
   return (

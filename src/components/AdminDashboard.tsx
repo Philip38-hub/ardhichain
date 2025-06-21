@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Upload, MapPin, Ruler, Building } from 'lucide-react';
+import { FileText, Upload, MapPin, Ruler, Building, AlertCircle, Smartphone, CheckCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { IPFSService } from '../services/ipfs';
 import { AlgorandService } from '../services/algorand';
@@ -16,6 +16,8 @@ export const AdminDashboard: React.FC = () => {
   const [document, setDocument] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [transactionStatus, setTransactionStatus] = useState<'idle' | 'uploading' | 'signing' | 'processing' | 'complete'>('idle');
 
   if (!isAdmin) {
     return (
@@ -50,10 +52,13 @@ export const AdminDashboard: React.FC = () => {
 
     setIsLoading(true);
     setSuccessMessage('');
+    setErrorMessage('');
+    setTransactionStatus('uploading');
 
     try {
       // Upload document to IPFS
       const documentCid = await IPFSService.uploadFile(document);
+      console.log('Document uploaded to IPFS with CID:', documentCid);
 
       // Create metadata object
       const metadata: PropertyMetadata = {
@@ -68,15 +73,24 @@ export const AdminDashboard: React.FC = () => {
       // Upload metadata to IPFS
       const metadataCid = await IPFSService.uploadJSON(metadata);
       const metadataUrl = `ipfs://${metadataCid}`;
+      console.log('Metadata uploaded to IPFS with CID:', metadataCid);
+      
+      // Update status to signing
+      setTransactionStatus('signing');
 
       // Create the land title NFT
+      setTransactionStatus('signing');
+      console.log('Requesting transaction signature from Pera Wallet...');
+      
       const assetId = await AlgorandService.createTitle(
         account,
         formData.landId,
         metadataUrl,
         peraWallet
       );
-
+      
+      // Update status to complete
+      setTransactionStatus('complete');
       setSuccessMessage(`Land title created successfully! Asset ID: ${assetId}`);
       
       // Reset form
@@ -90,7 +104,28 @@ export const AdminDashboard: React.FC = () => {
       
     } catch (error) {
       console.error('Error creating land title:', error);
-      alert('Failed to create land title. Please try again.');
+      setTransactionStatus('idle');
+      
+      // Extract error message
+      let message = 'Failed to create land title. Please try again.';
+      if (error instanceof Error) {
+        // Check for specific error messages
+        if (error.message.includes('Transaction signing timed out')) {
+          message = 'Transaction signing timed out. Please check your Pera Wallet mobile app and try again.';
+        } else if (error.message.includes('User rejected')) {
+          message = 'Transaction was rejected in the Pera Wallet app.';
+        } else if (error.message.includes('getEncodingSchema')) {
+          message = 'Error with transaction format. Please ensure your Pera Wallet app is up to date.';
+        } else if (error.message.includes('Insufficient funds') || error.message.includes('overspend')) {
+          message = 'Your wallet does not have enough Algos to complete this transaction. Please fund your wallet with at least 0.001 Algos and try again.';
+        } else if (error.message.includes('TransactionPool.Remember')) {
+          message = 'Transaction failed: Your wallet may not have enough Algos to pay the transaction fee. Please fund your wallet and try again.';
+        } else {
+          message = `Error: ${error.message}`;
+        }
+      }
+      
+      setErrorMessage(message);
     } finally {
       setIsLoading(false);
     }
@@ -111,8 +146,29 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           {successMessage && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6">
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+              <CheckCircle size={18} />
               {successMessage}
+            </div>
+          )}
+          
+          {errorMessage && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+              <AlertCircle size={18} />
+              {errorMessage}
+            </div>
+          )}
+          
+          {transactionStatus === 'signing' && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg mb-6">
+              <div className="flex items-center gap-2 mb-2">
+                <Smartphone size={18} className="text-yellow-600" />
+                <span className="font-medium">Waiting for wallet approval</span>
+              </div>
+              <p className="text-sm">
+                Please check your Pera Wallet mobile app to approve the transaction. 
+                If the app didn't open automatically, please open it manually and check for pending requests.
+              </p>
             </div>
           )}
 
@@ -205,12 +261,25 @@ export const AdminDashboard: React.FC = () => {
               disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
             >
-              {isLoading ? (
+              {transactionStatus === 'uploading' && (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Creating Land Title...
+                  Uploading to IPFS...
                 </>
-              ) : (
+              )}
+              {transactionStatus === 'signing' && (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Waiting for Wallet Signature...
+                </>
+              )}
+              {transactionStatus === 'processing' && (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Processing Transaction...
+                </>
+              )}
+              {(transactionStatus === 'idle' || !isLoading) && (
                 <>
                   <FileText className="w-5 h-5" />
                   Create Land Title NFT
