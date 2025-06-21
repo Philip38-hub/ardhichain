@@ -16,13 +16,13 @@ function safeStringify(obj: any): string {
 const algodClient = new algosdk.Algodv2(
   '',
   import.meta.env.VITE_ALGOD_NODE_URL,
-  ''
+  undefined
 );
 
 const indexerClient = new algosdk.Indexer(
   '',
   import.meta.env.VITE_INDEXER_URL,
-  ''
+  undefined
 );
 
 export class AlgorandService {
