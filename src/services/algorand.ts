@@ -77,10 +77,22 @@ export class AlgorandService {
         const balance = accountInfo.amount;
         console.log(`Account balance: ${balance} microAlgos`);
         
-        // We need at least 2000 microAlgos for transaction fees (1000 for app call + 1000 for potential contract funding)
-        const minRequired = 2000;
+        // Minimum required for creating a title:
+        // 1000 microAlgos for app call transaction fee
+        // 1000 microAlgos for potential inner transaction fee
+        // 300000 microAlgos in case contract needs funding
+        const txnFee = 1000;
+        const innerTxnFee = 1000;
+        const maxFundingNeeded = 300000;
+        const minRequired = txnFee + innerTxnFee + maxFundingNeeded;
+
         if (balance < minRequired) {
-          throw new Error(`Insufficient funds: Account has ${balance} microAlgos, but at least ${minRequired} microAlgos are required for the transaction fees. Please fund your account.`);
+          throw new Error(
+            `Insufficient funds: Account has ${balance} microAlgos, but at least ${minRequired} microAlgos ` +
+            `are required (${txnFee} for transaction fee, ${innerTxnFee} for inner transaction, ` +
+            `and up to ${maxFundingNeeded} for potential contract funding). ` +
+            `Please fund your account with at least ${minRequired/1000000} Algos.`
+          );
         }
       } catch (error) {
         if (error instanceof Error && error.message.includes('Insufficient funds')) {
@@ -107,13 +119,32 @@ export class AlgorandService {
         const contractInfo = await algodClient.accountInformation(appAddress).do();
         console.log(`Contract balance: ${contractInfo.amount} microAlgos`);
         
-        // If contract has less than 100000 microAlgos (0.1 Algo), fund it
-        const minContractBalance = 100000; // 0.1 Algos
-        if (contractInfo.amount < minContractBalance) {
-          console.log("Contract needs funding. Preparing funding transaction...");
+        // Calculate minimum balance requirements
+        const baseMinBalance = BigInt(100000); // 0.1 Algos base requirement
+        const perAssetMinBalance = BigInt(100000); // 0.1 Algos per asset
+        const feeBuffer = BigInt(10000); // 0.01 Algos for fees
+        
+        // Count existing assets managed by the contract
+        const existingAssets = contractInfo.assets?.length || 0;
+        const totalPerAssetMin = perAssetMinBalance * BigInt(existingAssets + 1); // Include the one we're about to create
+        
+        const targetBalance = baseMinBalance + totalPerAssetMin + feeBuffer;
+        const minContractBalance = targetBalance;
+
+        console.log(`Contract balance check:
+          - Current balance: ${contractInfo.amount} microAlgos
+          - Required minimum: ${minContractBalance} microAlgos
+          - Base minimum: ${baseMinBalance} microAlgos
+          - Per asset minimum: ${perAssetMinBalance} microAlgos
+          - Fee buffer: ${feeBuffer} microAlgos
+        `);
+
+        if (BigInt(contractInfo.amount) < minContractBalance) {
+          console.log(`Contract needs funding. Current balance: ${contractInfo.amount}, Required minimum: ${minContractBalance}`);
           
-          // Create funding transaction
-          const fundingAmount = 200000; // 0.2 Algos
+          // Calculate how much additional funding is needed (plus a small buffer)
+          const fundingAmount = Number(targetBalance - BigInt(contractInfo.amount) + BigInt(50000)); // Add 0.05 Algos as buffer
+          console.log(`Funding contract with ${fundingAmount} microAlgos`);
           // Create payment transaction
           const fundingTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
             suggestedParams: suggestedParams,
@@ -137,239 +168,208 @@ export class AlgorandService {
           // Wait for confirmation
           await algosdk.waitForConfirmation(algodClient, fundingTxnResult.txid, 4);
           console.log("Funding transaction confirmed");
+          
+          // Get updated contract balance to verify funding
+          const updatedContractInfo = await algodClient.accountInformation(appAddress).do();
+          console.log(`Updated contract balance: ${updatedContractInfo.amount} microAlgos`);
+          
+          if (BigInt(updatedContractInfo.amount) < minContractBalance) {
+            throw new Error(
+              `Contract funding was not sufficient. Current balance: ${updatedContractInfo.amount}, ` +
+              `Required minimum: ${minContractBalance}. Please try again.`
+            );
+          }
+          
+          // Add a small delay to ensure the funding transaction is fully processed
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log("Proceeding with title creation after successful funding");
         } else {
+          // Verify the balance is still sufficient
+          const currentBalance = BigInt(contractInfo.amount);
+          if (currentBalance < minContractBalance) {
+            throw new Error(
+              `Contract balance ${currentBalance} is below required minimum ${minContractBalance}. ` +
+              `Will attempt to fund on next try.`
+            );
+          }
           console.log("Contract has sufficient balance, no funding needed");
         }
       } catch (error) {
         console.error("Error checking or funding contract:", error);
-        // Continue anyway, the transaction might still succeed
+        if (error instanceof Error) {
+          // If the error was from our balance checks, we should stop
+          if (error.message.includes('Contract funding was not sufficient') ||
+              error.message.includes('Contract balance') ||
+              error.message.includes('below required minimum')) {
+            throw error;
+          }
+          // Log but continue for other types of errors
+          console.log("Continuing despite error:", error.message);
+        }
+        // Continue for unknown errors, the transaction might still succeed
+      }
+
+      // Check if account is admin
+      console.log("Checking admin authorization...");
+      try {
+        const appInfo = await algodClient.getApplicationByID(appId).do();
+        const globalState = appInfo.params.globalState || [];
+        // Get admin key bytes
+        const adminKey = new TextEncoder().encode("admin");
+        console.log("Admin key (hex):", Buffer.from(adminKey).toString('hex'));
+        
+        // Find admin state
+        const adminState = globalState.find(state => {
+          const stateKeyHex = Buffer.from(state.key).toString('hex');
+          const adminKeyHex = Buffer.from(adminKey).toString('hex');
+          console.log(`Comparing state key ${stateKeyHex} with admin key ${adminKeyHex}`);
+          return stateKeyHex === adminKeyHex;
+        });
+
+        if (!adminState?.value?.bytes) {
+          console.error("Admin state not found in global state");
+          console.log("Available state keys:", globalState.map(state => Buffer.from(state.key).toString()));
+          throw new Error("Admin address not found in application state");
+        }
+
+        const storedAdmin = algosdk.encodeAddress(adminState.value.bytes);
+        console.log("Stored admin address:", storedAdmin);
+        console.log("Current account:", account);
+        
+        if (storedAdmin !== account) {
+          throw new Error("Account is not authorized as admin");
+        }
+        console.log("Admin authorization confirmed");
+      } catch (error) {
+        console.error("Error checking admin authorization:", error);
+        throw new Error("Failed to verify admin authorization");
       }
 
       // Create the application call transaction
       console.log("Creating application call transaction...");
       
-      // We'll use a simpler approach without ABI to avoid compatibility issues with Pera Wallet
-      // This approach uses direct method name and arguments encoding
-      
-      // Create the transaction object with explicit fee
       const modifiedParams = {...suggestedParams};
       modifiedParams.fee = BigInt(1000); // Minimum fee in microAlgos
-      modifiedParams.flatFee = true; // Use flat fee instead of per-byte fee
+      modifiedParams.flatFee = true;
       
       console.log("Using modified params with explicit fee:", safeStringify(modifiedParams));
       
-      // Create the application call transaction with simple method name and arguments
-      const appCallTxn = algosdk.makeApplicationCallTxnFromObject({
-        suggestedParams: modifiedParams,
-        sender: account,
-        appIndex: appId,
-        onComplete: algosdk.OnApplicationComplete.NoOpOC,
-        appArgs: [
-          new Uint8Array(Buffer.from('create_title')),
-          new Uint8Array(Buffer.from(landId)),
-          new Uint8Array(Buffer.from(metadataUrl))
+      // Create ABI contract instance
+      const contractSpec = {
+        name: "LandTitle",
+        methods: [
+          {
+            name: "create_title",
+            args: [
+              { type: "string", name: "land_id" },
+              { type: "string", name: "metadata_url" }
+            ],
+            returns: { type: "uint64" }
+          }
         ]
+      };
+
+      const contract = new algosdk.ABIContract(contractSpec);
+      const createTitleMethod = contract.getMethodByName("create_title");
+      
+      // Create AtomicTransactionComposer
+      const atc = new algosdk.AtomicTransactionComposer();
+      
+      // Create a custom signer that wraps PeraWallet
+      const signer = (txnGroup: algosdk.Transaction[]): Promise<Uint8Array[]> => {
+        return peraWallet.signTransaction([
+          txnGroup.map(txn => ({
+            txn: txn,
+            signers: [account]
+          }))
+        ]).then((signed: any) => Array.isArray(signed) ? signed.flat() : [signed]);
+      };
+      
+      // Add method call with Pera Wallet signer
+      atc.addMethodCall({
+        appID: appId,
+        method: createTitleMethod,
+        sender: account,
+        suggestedParams: modifiedParams,
+        methodArgs: [landId, metadataUrl.replace('ipfs://', '')],
+        signer
       });
 
-      console.log("Transaction created successfully");
+      // Execute the transaction
+      console.log("Executing transaction using AtomicTransactionComposer...");
+      const result = await atc.execute(algodClient, 4);
+      console.log("Transaction executed successfully");
+      console.log("Transaction IDs:", result.txIDs);
+
+      // Get the created asset ID from the transaction result
+      const confirmedTxn = await algosdk.waitForConfirmation(algodClient, result.txIDs[0], 4);
+
+      // AtomicTransactionComposer handles the signing and execution process
+      // Now let's extract the asset ID from the confirmed transaction
       
-      try {
-        // Check if wallet is connected before signing
-        if (!peraWallet || typeof peraWallet.signTransaction !== 'function') {
-          console.error("PeraWallet not properly initialized or connected");
-          console.log("PeraWallet object:", safeStringify(peraWallet));
-          throw new Error('Wallet not connected or initialized properly');
+      // Extract the created asset ID from the transaction
+      const innerTxns = confirmedTxn.innerTxns || [];
+      console.log("Inner transactions:", safeStringify(innerTxns));
+      
+      // Find the asset creation transaction
+      let assetId = 0;
+      for (const innerTxn of innerTxns) {
+        const innerTxnAny = innerTxn as any;
+        if (innerTxnAny['asset-config-transaction'] && innerTxnAny['created-asset-index']) {
+          assetId = innerTxnAny['created-asset-index'];
+          console.log("Found created asset ID:", assetId);
+          break;
         }
-        
-        // Sign the transaction using PeraWallet Connect
-        console.log("Requesting signature from wallet...");
-        
-        // Format transaction for Pera Wallet according to documentation
-        // The correct format is an array of transaction groups
-        // Each transaction group is an array of SignerTransaction objects
-        const singleTxnGroup = [
-          {
-            txn: appCallTxn,
-            signers: [account]
-          }
-        ];
-        
-        console.log("Transaction prepared for signing:");
-        console.log("- Transaction type:", typeof appCallTxn);
-        console.log("- Transaction group format:", Array.isArray(singleTxnGroup));
-        
-        // Add a message for mobile users
-        console.log("Please check your Pera Wallet mobile app to sign the transaction");
-        console.log("If the app doesn't open automatically, please open it manually and check for pending transactions");
-        
-        // Sign the transaction with simplified approach
-        let signedTxns;
-        try {
-          // First, check if the transaction is properly formatted
-          if (!appCallTxn || typeof appCallTxn !== 'object') {
-            throw new Error('Invalid transaction object');
-          }
-          
-          // Log the exact transaction format we're sending to Pera Wallet
-          console.log("Calling peraWallet.signTransaction with transaction group");
-          
-          // Use the format directly from Pera Wallet examples
-          signedTxns = await peraWallet.signTransaction([singleTxnGroup]);
-          
-          console.log("Transaction signed successfully!");
-          console.log("Signed transaction type:", typeof signedTxns);
-          console.log("Is array:", Array.isArray(signedTxns));
-          console.log("Length:", signedTxns ? signedTxns.length : 0);
-        } catch (error) {
-          console.error("Error during transaction signing:", error);
-          if (error instanceof Error) {
-            console.error("Error message:", error.message);
-            console.error("Error stack:", error.stack);
-            
-            // Check for specific error types
-            if (error.message.includes('getEncodingSchema')) {
-              throw new Error('Transaction format error: The transaction object may not be compatible with Pera Wallet. Please ensure you have the latest version of the Pera Wallet app installed.');
-            }
-          }
-          throw new Error(`Transaction signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`); 
-        }
-        console.log("Transaction signed successfully!");
-        console.log("Signed transaction type:", typeof signedTxns);
-        console.log("Is array:", Array.isArray(signedTxns));
-        console.log("Length:", signedTxns ? signedTxns.length : 0);
-        
-        if (!signedTxns || signedTxns.length === 0) {
-          throw new Error('No signed transaction returned from wallet');
-        }
-        
-        // Send the signed transaction
-        console.log("Sending signed transaction to network...");
-        
-        // Handle the signed transaction based on its structure
-        // Pera Wallet typically returns a nested array structure
-        let signedTxnToSend;
-        let txId;
-        
-        try {
-          // First try to flatten the array to handle any nesting
-          if (Array.isArray(signedTxns)) {
-            if (signedTxns.length > 0 && Array.isArray(signedTxns[0])) {
-              // It's a nested array structure like [[Uint8Array]]
-              signedTxnToSend = signedTxns[0];
-              console.log("Using first element of nested array structure");
-            } else {
-              // It's already a flat array
-              signedTxnToSend = signedTxns;
-              console.log("Using flat array structure");
-            }
-          } else {
-            // It's not an array at all
-            signedTxnToSend = signedTxns;
-            console.log("Using non-array structure");
-          }
-          
-          console.log("Prepared transaction for sending:");
-          console.log("- Type:", typeof signedTxnToSend);
-          console.log("- Is array:", Array.isArray(signedTxnToSend));
-          console.log("- Length (if array):", Array.isArray(signedTxnToSend) ? signedTxnToSend.length : 'N/A');
-          
-          // Send the transaction to the network
-          txId = await algodClient.sendRawTransaction(signedTxnToSend).do();
-          console.log("Transaction sent with ID:", txId.txid);
-        } catch (error) {
-          console.error("Error sending transaction to network:", error);
-          
-          // Try alternative approach if the first one fails
-          console.log("Trying alternative approach to send transaction...");
-          
-          try {
-            // Try to use the flattened array approach from Pera Wallet docs
-            const flattenedTxns = Array.isArray(signedTxns) ? signedTxns.flat() : signedTxns;
-            console.log("Flattened transaction type:", typeof flattenedTxns);
-            
-            // Send the transaction to the network
-            txId = await algodClient.sendRawTransaction(flattenedTxns).do();
-            console.log("Transaction sent with ID (alternative method):", txId.txid);
-          } catch (innerError) {
-            console.error("Both transaction sending methods failed:", innerError);
-            throw new Error(`Failed to send transaction to network: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`);
-          }
-        }
-        
-        // Wait for confirmation
-        console.log("Waiting for confirmation...");
-        const confirmedTxn = await algosdk.waitForConfirmation(algodClient, txId.txid, 4);
-        console.log("Transaction confirmed:", safeStringify(confirmedTxn));
-        
-        // Extract the created asset ID from the transaction
-        const innerTxns = confirmedTxn.innerTxns || [];
-        console.log("Inner transactions:", safeStringify(innerTxns));
-        
-        // Find the asset creation transaction
-        let assetId = 0;
-        for (const innerTxn of innerTxns) {
-          const innerTxnAny = innerTxn as any;
-          if (innerTxnAny['asset-config-transaction'] && innerTxnAny['created-asset-index']) {
-            assetId = innerTxnAny['created-asset-index'];
-            console.log("Found created asset ID:", assetId);
-            break;
-          }
-        }
-        
-        if (!assetId) {
-          // If not found in inner transactions, check the main transaction
-          const txnResponse = confirmedTxn as any;
-          console.log("Checking main transaction for asset ID");
-          assetId = txnResponse['created-asset-index'] ?? txnResponse.createdAssetIndex ?? 0;
-          
-          if (assetId) {
-            console.log("Asset created with ID:", assetId);
-          } else {
-            throw new Error('No asset was created in this transaction');
-          }
-        }
-        
-        return assetId;
-      } catch (error) {
-        console.error("Error during transaction signing or sending:", error);
-        if (error instanceof Error) {
-          console.error("Error message:", error.message);
-          console.error("Error stack:", error.stack);
-          
-          // Handle specific errors with more helpful messages
-          if (error.message.includes('overspend') || error.message.includes('Insufficient funds')) {
-            throw new Error(
-              'Insufficient funds: Your wallet does not have enough Algos to pay the transaction fee. ' +
-              'To fund your wallet, you can use the Algorand TestNet Dispenser at https://bank.testnet.algorand.network/ ' +
-              'or request funds from the Algorand TestNet Discord.'
-            );
-          } else if (error.message.includes('TransactionPool.Remember')) {
-            throw new Error(
-              'Transaction rejected by the network. This may be due to insufficient funds. ' +
-              'Please ensure your wallet has at least 0.001 Algos to cover the transaction fee.'
-            );
-          }
-        }
-        throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-    } catch (error) {
-      // Enhanced error logging
-      console.error('Error creating title:', error);
       
-      // Log additional details about the error
+      if (!assetId) {
+        // If not found in inner transactions, check the main transaction
+        const txnResponse = confirmedTxn as any;
+        console.log("Checking main transaction for asset ID");
+        assetId = txnResponse['created-asset-index'] ?? txnResponse.createdAssetIndex ?? 0;
+        
+        if (assetId) {
+          console.log("Asset created with ID:", assetId);
+        } else {
+          throw new Error('No asset was created in this transaction');
+        }
+      }
+      
+      return assetId;
+    } catch (error: unknown) {
+      console.error("Error during transaction signing or sending:", error);
       if (error instanceof Error) {
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-      } else {
-        console.error('Unknown error type:', typeof error);
-        console.error('Error stringified:', safeStringify(error));
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+        
+        // Handle specific errors with more helpful messages
+        const errorMsg = error.message.toLowerCase();
+        if (errorMsg.includes('balance') && errorMsg.includes('below min')) {
+          // Extract balance info from error message
+          const currentBalance = errorMsg.match(/balance (\d+)/)?.[1];
+          const requiredMin = errorMsg.match(/below min (\d+)/)?.[1];
+          
+          throw new Error(
+            'The smart contract needs more funds to manage assets. ' +
+            `Current balance: ${currentBalance || 'unknown'} microAlgos, ` +
+            `Required: ${requiredMin || 'unknown'} microAlgos. ` +
+            'Please try again - the contract will be funded automatically on the next attempt.'
+          );
+        } else if (error.message.includes('overspend') || error.message.includes('Insufficient funds')) {
+          throw new Error(
+            'Insufficient funds: Your wallet does not have enough Algos to pay the transaction fee. ' +
+            'To fund your wallet, you can use the Algorand TestNet Dispenser at https://bank.testnet.algorand.network/ ' +
+            'or request funds from the Algorand TestNet Discord.'
+          );
+        } else if (error.message.includes('TransactionPool.Remember')) {
+          // Generic transaction rejection message
+          throw new Error(
+            'Transaction rejected by the network. This could be due to insufficient funds or other issues. ' +
+            'Please ensure all accounts have sufficient balance and try again.'
+          );
+        }
       }
-      
-      // Rethrow with more context
-      throw new Error(`Failed to create title: ${error instanceof Error ? error.message : safeStringify(error)}`);
+      throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-
-  // Keep the rest of the class methods as they are
-  // ...
 }
