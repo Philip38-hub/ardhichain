@@ -35,26 +35,70 @@ const indexerClient = new algosdk.Indexer(
 export class AlgorandService {
   static async getAccountAssets(address: string): Promise<any[]> {
     try {
+      // Add timeout and better error handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      console.log('Fetching account assets for address:', address);
+      console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
+      
       const accountInfo = await indexerClient.lookupAccountByID(address).do();
+      clearTimeout(timeoutId);
+      
+      console.log('Successfully fetched account info');
       return accountInfo.account.assets || [];
     } catch (error) {
       console.error('Error fetching account assets:', error);
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+          throw new Error(
+            'Unable to connect to Algorand Indexer. Please check your internet connection and try again. ' +
+            'If the problem persists, the Algorand TestNet indexer may be temporarily unavailable.'
+          );
+        } else if (error.message.includes('timeout') || error.name === 'AbortError') {
+          throw new Error(
+            'Request timed out while connecting to Algorand Indexer. Please check your internet connection and try again.'
+          );
+        } else if (error.message.includes('404')) {
+          // Account not found is not necessarily an error - return empty array
+          console.log('Account not found, returning empty assets array');
+          return [];
+        }
+      }
+      
+      // For other errors, return empty array to prevent app crash
+      console.log('Returning empty array due to error');
       return [];
     }
   }
 
   static async getAssetInfo(assetId: number): Promise<any> {
     try {
+      console.log('Fetching asset info for ID:', assetId);
       const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
       return assetInfo.asset;
     } catch (error) {
       console.error('Error fetching asset info:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+          throw new Error(
+            'Unable to connect to Algorand Indexer. Please check your internet connection and try again.'
+          );
+        } else if (error.message.includes('404')) {
+          throw new Error(`Asset with ID ${assetId} not found.`);
+        }
+      }
+      
       return null;
     }
   }
 
   static async getAssetTransactions(assetId: number): Promise<any[]> {
     try {
+      console.log('Fetching asset transactions for ID:', assetId);
       const transactions = await indexerClient
         .lookupAssetTransactions(assetId)
         .limit(100)
@@ -62,6 +106,15 @@ export class AlgorandService {
       return transactions.transactions || [];
     } catch (error) {
       console.error('Error fetching asset transactions:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+          throw new Error(
+            'Unable to connect to Algorand Indexer. Please check your internet connection and try again.'
+          );
+        }
+      }
+      
       return [];
     }
   }
