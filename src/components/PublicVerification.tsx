@@ -26,15 +26,56 @@ export const PublicVerification: React.FC = () => {
     setResult(null);
 
     try {
+      // First check if the asset is managed by our contract
+      const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+      console.log(`Checking if asset ${assetId} is managed by contract ${appId}...`);
+      const contractAssets = await AlgorandService.getContractAssets(appId);
+      
       const assetInfo = await AlgorandService.getAssetInfo(parseInt(assetId));
       
       if (!assetInfo) {
-        setError('Asset not found');
+        // Check if it's in contract assets but not found in indexer
+        const assetInContract = contractAssets.some(asset => asset['asset-id'] === parseInt(assetId));
+        if (assetInContract) {
+          setError(`Asset ${assetId} exists in contract but not found in indexer. This might be due to indexer sync delay. Please try again in a few minutes.`);
+        } else {
+          setError(`Asset ${assetId} not found in contract or indexer. Please verify the asset ID.`);
+        }
         return;
       }
 
-      if (assetInfo.params?.['unit-name'] !== 'ARDHI') {
-        setError('This asset is not a valid ArdhiChain land title');
+      console.log('Asset params:', {
+        unitName: assetInfo.params?.['unit-name'],
+        url: assetInfo.params?.url,
+        creator: assetInfo.params?.creator,
+        total: assetInfo.params?.total,
+        decimals: assetInfo.params?.decimals,
+        defaultFrozen: assetInfo.params?.['default-frozen'],
+        name: assetInfo.params?.name
+      });
+
+      // Validate if this is a land title asset
+      const isLandTitle = (
+        // Check if created by our contract
+        assetInfo.params?.creator === AlgorandService.getApplicationAddress(appId) &&
+        // Check if it follows land title naming pattern (LR/YYYY/N)
+        /^LR\/\d{4}\/\d+$/.test(assetInfo.params?.name || '') &&
+        // Check if it has metadata URL
+        assetInfo.params?.url?.length > 0 &&
+        // Check if it's a non-divisible token
+        assetInfo.params?.decimals === 0 &&
+        // Check if total supply is 1
+        assetInfo.params?.total === 1n
+      );
+
+      if (!isLandTitle) {
+        setError(`This asset is not a valid ArdhiChain land title. Asset details: ${JSON.stringify({
+          creator: assetInfo.params?.creator,
+          name: assetInfo.params?.name,
+          hasUrl: Boolean(assetInfo.params?.url),
+          decimals: assetInfo.params?.decimals,
+          total: assetInfo.params?.total?.toString()
+        }, null, 2)}`);
         return;
       }
 
@@ -62,7 +103,21 @@ export const PublicVerification: React.FC = () => {
 
     } catch (error) {
       console.error('Verification error:', error);
-      setError('Failed to verify asset. Please check the Asset ID and try again.');
+      if (error instanceof Error) {
+        if (error.message.includes('status 404')) {
+          setError(`Asset ID ${assetId} not found after multiple attempts. This could mean:
+          1. The indexer is not fully synced (try again in a few minutes)
+          2. The asset was recently created (wait a few minutes)
+          3. The asset exists on a different network
+          4. The asset ID is incorrect`);
+        } else if (error.message.includes('network')) {
+          setError('Network error. Please check your internet connection and try again.');
+        } else {
+          setError(`Failed to verify asset: ${error.message}`);
+        }
+      } else {
+        setError('Failed to verify asset. Please check the Asset ID and try again.');
+      }
     } finally {
       setLoading(false);
     }

@@ -50,9 +50,31 @@ export class AlgorandService {
       console.log("Getting assets for contract ID:", appId);
       const appAddress = this.getApplicationAddress(appId);
       console.log("Contract address:", appAddress);
-      return await this.getAccountAssets(appAddress);
+
+      // Get account info directly first
+      const accountInfo = await algodClient.accountInformation(appAddress).do();
+      console.log("Contract account info:", {
+        address: appAddress,
+        amount: accountInfo.amount,
+        totalAssets: accountInfo.assets?.length || 0,
+        appID: appId
+      });
+
+      // Get assets through indexer for more details
+      const assets = await this.getAccountAssets(appAddress);
+      console.log("Contract assets from indexer:", assets.map(asset => ({
+        'asset-id': asset['asset-id'],
+        amount: asset.amount,
+        'is-frozen': asset['is-frozen']
+      })));
+
+      return assets;
     } catch (error) {
-      console.error("Error getting contract assets:", error);
+      console.error("Error getting contract assets:", {
+        error: error instanceof Error ? error.message : error,
+        appId,
+        indexerUrl: import.meta.env.VITE_INDEXER_URL
+      });
       return [];
     }
   }
@@ -80,18 +102,83 @@ export class AlgorandService {
   }
 
   static async getAssetInfo(assetId: number): Promise<any> {
-    try {
-      const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
-      return assetInfo.asset;
-    } catch (error) {
-      // Check if this is a 404 error (asset not found)
-      if (error instanceof Error && error.message.includes('status 404')) {
-        console.warn(`Asset not found for asset-id: ${assetId}`);
-      } else {
-        console.error('Error fetching asset info:', error);
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second between retries
+    const indexerUrl = import.meta.env.VITE_INDEXER_URL;
+    const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+
+    // First check if the contract holds this asset
+    console.log(`Checking contract (${appId}) assets...`);
+    const contractAssets = await this.getContractAssets(appId);
+    console.log('Contract assets:', contractAssets);
+    
+    const assetInContract = contractAssets.some(asset => {
+      // Get asset ID from either property format
+      const assetIdFromContract = BigInt(asset.assetId || asset['asset-id']);
+      const searchAssetId = BigInt(assetId);
+      const match = assetIdFromContract === searchAssetId;
+      
+      console.log('Comparing asset IDs:', {
+        fromContract: assetIdFromContract.toString(),
+        searchingFor: searchAssetId.toString(),
+        match
+      });
+      
+      return match;
+    });
+    console.log(`Asset ${assetId} in contract: ${assetInContract}`);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt}/${maxRetries}: Fetching asset info for ID ${assetId} from ${indexerUrl}`);
+        
+        // Try direct HTTP request first to check raw response
+        const directResponse = await fetch(`${indexerUrl}/v2/assets/${assetId}`);
+        console.log(`Direct API Response:`, {
+          status: directResponse.status,
+          statusText: directResponse.statusText,
+          contractHoldsAsset: assetInContract
+        });
+        
+        // Now try with the SDK
+        const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
+        console.log('Asset info response:', assetInfo);
+        return assetInfo.asset;
+      } catch (error) {
+        // Check if this is a 404 error
+        if (error instanceof Error && error.message.includes('status 404')) {
+          console.warn(`Attempt ${attempt}: Asset not found for asset-id: ${assetId}`);
+          console.warn('Diagnostic information:');
+          console.warn(`1. Network: ${indexerUrl} (testnet)`);
+          console.warn(`2. Asset ID: ${assetId}`);
+          console.warn('3. Common causes:');
+          console.warn('   - Asset exists but indexer is not synced');
+          console.warn('   - Asset was recently created');
+          console.warn('   - Asset exists on different network');
+          
+          if (attempt < maxRetries) {
+            console.log(`Waiting ${retryDelay}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            continue;
+          }
+        }
+
+        // For other errors, log details and rethrow
+        console.error('Error fetching asset info:', {
+          attempt,
+          error: error instanceof Error ? error.message : error,
+          assetId,
+          indexerUrl
+        });
+
+        if (attempt === maxRetries) {
+          throw error;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
-      return null;
     }
+    return null;
   }
 
   static async getAssetTransactions(assetId: number): Promise<any[]> {
