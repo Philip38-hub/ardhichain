@@ -17,31 +17,97 @@ export const MyTitles: React.FC = () => {
   const [isTransferring, setIsTransferring] = useState(false);
 
   useEffect(() => {
+    console.log("MyTitles useEffect triggered");
+    console.log("Account state:", account);
+    console.log("Connected state:", isConnected);
     if (account) {
+      console.log("Calling loadTitles for account:", account);
       loadTitles();
+    } else {
+      console.log("No account available, skipping loadTitles");
     }
   }, [account]);
 
   const loadTitles = async () => {
-    if (!account) return;
+    console.log("loadTitles function called");
+    if (!account) {
+      console.log("No account in loadTitles, returning early");
+      return;
+    }
+
+    // Direct indexer search for created assets
+    try {
+      console.log("Attempting direct indexer search for created assets...");
+      const createdAssetsResponse = await fetch(
+        `${import.meta.env.VITE_INDEXER_URL}/v2/accounts/${account}/created-assets`
+      );
+      const createdAssets = await createdAssetsResponse.json();
+      console.log("Created assets from indexer:", createdAssets);
+    } catch (error) {
+      console.error("Error fetching created assets directly:", error);
+    }
 
     try {
       setLoading(true);
+      console.log("Loading titles for account:", account);
+      
+      // Get application ID and check contract's assets
+      const appId = parseInt(import.meta.env.VITE_APP_ID);
+      console.log("Smart contract app ID:", appId);
+      console.log("Checking smart contract assets...");
+      const contractAssets = await AlgorandService.getContractAssets(appId);
+      console.log("Smart contract assets:", contractAssets);
+      
+      // First search for all ARDHI assets in the network
+      console.log("Searching for all ARDHI assets in the network...");
+      const allArdhiAssets = await AlgorandService.searchAssetsByUnitName('ARDHI');
+      console.log("All ARDHI assets found:", allArdhiAssets);
+      
+      // Check which assets were created by this account
+      console.log("Checking for assets created by current account...");
+      const createdByAccount = allArdhiAssets.filter(
+        asset => asset.params.creator === account
+      );
+      console.log("Assets created by current account:", createdByAccount);
+      
+      // Then get account's assets
       const assets = await AlgorandService.getAccountAssets(account);
+      console.log("Fetched assets from service:", assets);
+      
+      if (createdByAccount.length > 0 && assets.length === 0) {
+        console.log("Found assets created by account but not in account's assets - may need opt-in");
+        console.log("Created asset IDs:", createdByAccount.map(asset => asset.index));
+      }
+      
+      if (!assets || assets.length === 0) {
+        console.log("No assets found. Checking if account exists...");
+        const accountResponse = await fetch(
+          `${import.meta.env.VITE_INDEXER_URL}/v2/accounts/${account}`
+        );
+        const accountInfo = await accountResponse.json();
+        console.log("Direct account info from indexer:", accountInfo);
+      }
       
       // Filter for ARDHI unit name assets
       const ardhiAssets = assets.filter(asset => asset.amount > 0);
+      console.log("Assets with amount > 0:", ardhiAssets);
+
       const titlePromises = ardhiAssets.map(async (asset) => {
         try {
+          console.log("Fetching asset info for asset ID:", asset['asset-id']);
           const assetInfo = await AlgorandService.getAssetInfo(asset['asset-id']);
+          console.log("Asset info:", assetInfo);
           
           if (assetInfo?.params?.['unit-name'] === 'ARDHI') {
+            console.log("Found ARDHI asset:", asset['asset-id']);
             const metadataUrl = assetInfo.params.url;
             let metadata: PropertyMetadata | null = null;
             
             if (metadataUrl?.startsWith('ipfs://')) {
+              console.log("Fetching IPFS metadata from:", metadataUrl);
               const cid = metadataUrl.replace('ipfs://', '');
               metadata = await IPFSService.fetchJSON(cid);
+              console.log("IPFS metadata:", metadata);
             }
 
             return {
@@ -63,7 +129,9 @@ export const MyTitles: React.FC = () => {
       });
 
       const resolvedTitles = await Promise.all(titlePromises);
-      setTitles(resolvedTitles.filter(title => title !== null) as LandTitle[]);
+      const filteredTitles = resolvedTitles.filter(title => title !== null) as LandTitle[];
+      console.log("Final filtered titles:", filteredTitles);
+      setTitles(filteredTitles);
     } catch (error) {
       console.error('Error loading titles:', error);
     } finally {

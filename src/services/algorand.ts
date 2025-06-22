@@ -26,12 +26,55 @@ const indexerClient = new algosdk.Indexer(
 );
 
 export class AlgorandService {
+  static async searchAssetsByUnitName(unitName: string): Promise<any[]> {
+    try {
+      console.log(`Searching for assets with unit-name: ${unitName}`);
+      const response = await indexerClient
+        .searchForAssets()
+        .unit(unitName)
+        .do();
+      console.log('Search results:', response);
+      return response.assets || [];
+    } catch (error) {
+      console.error('Error searching for assets:', error);
+      return [];
+    }
+  }
+
+  static getApplicationAddress(appId: number): string {
+    return algosdk.getApplicationAddress(appId).toString();
+  }
+
+  static async getContractAssets(appId: number): Promise<any[]> {
+    try {
+      console.log("Getting assets for contract ID:", appId);
+      const appAddress = this.getApplicationAddress(appId);
+      console.log("Contract address:", appAddress);
+      return await this.getAccountAssets(appAddress);
+    } catch (error) {
+      console.error("Error getting contract assets:", error);
+      return [];
+    }
+  }
+
   static async getAccountAssets(address: string): Promise<any[]> {
     try {
+      console.log('Fetching assets for address:', address);
+      console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
+      
       const accountInfo = await indexerClient.lookupAccountByID(address).do();
-      return accountInfo.account.assets || [];
+      console.log('Raw account info:', accountInfo);
+      
+      const assets = accountInfo.account.assets || [];
+      console.log('Found assets:', assets);
+      
+      return assets;
     } catch (error) {
       console.error('Error fetching account assets:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return [];
     }
   }
