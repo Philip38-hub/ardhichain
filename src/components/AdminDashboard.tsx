@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Upload, MapPin, Ruler, Building, AlertCircle, Smartphone, CheckCircle, User } from 'lucide-react';
+import { FileText, Upload, MapPin, Ruler, Building, AlertCircle, Smartphone, CheckCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { IPFSService } from '../services/ipfs';
 import { AlgorandService } from '../services/algorand';
@@ -11,8 +11,7 @@ export const AdminDashboard: React.FC = () => {
     landId: '',
     location: '',
     area: '',
-    municipality: '',
-    initialOwnerAddress: ''
+    municipality: ''
   });
   const [document, setDocument] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,22 +46,9 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const validateAlgorandAddress = (address: string): boolean => {
-    // Basic Algorand address validation
-    // Algorand addresses are 58 characters long and use base32 encoding
-    const algorandAddressRegex = /^[A-Z2-7]{58}$/;
-    return algorandAddressRegex.test(address);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!document || !account) return;
-
-    // Validate the initial owner address
-    if (!validateAlgorandAddress(formData.initialOwnerAddress)) {
-      setErrorMessage('Please enter a valid Algorand address for the initial owner. Algorand addresses are 58 characters long and contain only uppercase letters and numbers 2-7.');
-      return;
-    }
 
     setIsLoading(true);
     setSuccessMessage('');
@@ -92,7 +78,7 @@ export const AdminDashboard: React.FC = () => {
       // Update status to signing
       setTransactionStatus('signing');
 
-      // Create the land title NFT with initial owner
+      // Create the land title NFT
       setTransactionStatus('signing');
       console.log('Requesting transaction signature from Pera Wallet...');
       
@@ -100,21 +86,19 @@ export const AdminDashboard: React.FC = () => {
         account,
         formData.landId,
         metadataUrl,
-        formData.initialOwnerAddress,
         peraWallet
       );
       
       // Update status to complete
       setTransactionStatus('complete');
-      setSuccessMessage(`Land title created successfully! Asset ID: ${assetId}. The NFT has been transferred to ${formData.initialOwnerAddress.slice(0, 6)}...${formData.initialOwnerAddress.slice(-4)}`);
+      setSuccessMessage(`Land title created successfully! Asset ID: ${assetId}`);
       
       // Reset form
       setFormData({
         landId: '',
         location: '',
         area: '',
-        municipality: '',
-        initialOwnerAddress: ''
+        municipality: ''
       });
       setDocument(null);
       
@@ -136,8 +120,6 @@ export const AdminDashboard: React.FC = () => {
           message = 'Your wallet does not have enough Algos to complete this transaction. Please fund your wallet with at least 0.001 Algos and try again.';
         } else if (error.message.includes('TransactionPool.Remember')) {
           message = 'Transaction failed: Your wallet may not have enough Algos to pay the transaction fee. Please fund your wallet and try again.';
-        } else if (error.message.includes('receiver must opt-in')) {
-          message = `The initial owner (${formData.initialOwnerAddress.slice(0, 6)}...${formData.initialOwnerAddress.slice(-4)}) must first opt-in to receive the asset. Please ask them to opt-in to asset transfers in their wallet.`;
         } else {
           message = `Error: ${error.message}`;
         }
@@ -159,7 +141,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-gray-600">Create new land title NFTs with direct ownership</p>
+              <p className="text-gray-600">Create new land title NFTs</p>
             </div>
           </div>
 
@@ -255,26 +237,6 @@ export const AdminDashboard: React.FC = () => {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., 0.5 acres"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <User className="w-4 h-4 inline mr-2" />
-                Initial Owner's Algorand Address
-              </label>
-              <input
-                type="text"
-                name="initialOwnerAddress"
-                value={formData.initialOwnerAddress}
-                onChange={handleInputChange}
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                placeholder="Enter the 58-character Algorand address of the land owner"
-              />
-              <p className="text-sm text-gray-500 mt-2">
-                The newly created land title NFT will be transferred directly to this address. 
-                Make sure the address is correct as this cannot be undone.
-              </p>
             </div>
 
             <div>

@@ -194,69 +194,16 @@ export class AlgorandService {
     }
   }
 
-  static async transferAsset(
-    senderAddress: string,
-    receiverAddress: string,
-    assetId: number,
-    peraWallet: any
-  ): Promise<string> {
-    try {
-      console.log(`Transferring asset ${assetId} from ${senderAddress} to ${receiverAddress}`);
-      
-      // Get suggested parameters
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      
-      // Create asset transfer transaction
-      const transferTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from: senderAddress,
-        to: receiverAddress,
-        assetIndex: assetId,
-        amount: 1, // NFTs have amount of 1
-        suggestedParams
-      });
-
-      // Sign transaction with Pera Wallet
-      const txnGroup = [{ txn: transferTxn, signers: [senderAddress] }];
-      const signedTxn = await peraWallet.signTransaction([txnGroup]);
-      
-      // Send transaction
-      const flattenedSignedTxn = Array.isArray(signedTxn) ? signedTxn.flat() : signedTxn;
-      const txnResult = await algodClient.sendRawTransaction(flattenedSignedTxn).do();
-      
-      // Wait for confirmation
-      await algosdk.waitForConfirmation(algodClient, txnResult.txid, 4);
-      
-      return txnResult.txid;
-    } catch (error) {
-      console.error('Error transferring asset:', error);
-      throw error;
-    }
-  }
-
   static async createTitle(
     account: string,
     landId: string,
     metadataUrl: string,
-    initialOwnerAddress: string,
     peraWallet: any
   ): Promise<number> {
     try {
       console.log("Starting createTitle with account:", account);
       console.log("Land ID:", landId);
       console.log("Metadata URL:", metadataUrl);
-      console.log("Initial Owner Address:", initialOwnerAddress);
-      
-      // Validate initial owner address
-      if (!initialOwnerAddress || initialOwnerAddress.length !== 58) {
-        throw new Error('Invalid initial owner address. Algorand addresses must be 58 characters long.');
-      }
-
-      // Check if initial owner address is valid
-      try {
-        algosdk.decodeAddress(initialOwnerAddress);
-      } catch (error) {
-        throw new Error('Invalid initial owner address format. Please provide a valid Algorand address.');
-      }
       
       // Check account balance first
       try {
@@ -450,8 +397,7 @@ export class AlgorandService {
             name: "create_title",
             args: [
               { type: "string", name: "land_id" },
-              { type: "string", name: "metadata_url" },
-              { type: "address", name: "initial_owner" }
+              { type: "string", name: "metadata_url" }
             ],
             returns: { type: "uint64" }
           }
@@ -480,7 +426,7 @@ export class AlgorandService {
         method: createTitleMethod,
         sender: account,
         suggestedParams: modifiedParams,
-        methodArgs: [landId, metadataUrl.replace('ipfs://', ''), initialOwnerAddress],
+        methodArgs: [landId, metadataUrl.replace('ipfs://', '')],
         signer
       });
 
@@ -591,21 +537,6 @@ export class AlgorandService {
           
           if (params.name === landId && params.url === metadataUrl.replace('ipfs://', '')) {
             console.log("Asset verified successfully - all parameters match");
-            
-            // Additional verification: Check if the asset was transferred to the initial owner
-            try {
-              const ownerAssets = await this.getAccountAssets(initialOwnerAddress);
-              const ownsAsset = ownerAssets.some(asset => asset['asset-id'] === assetId && asset.amount > 0);
-              
-              if (ownsAsset) {
-                console.log(`Asset ${assetId} successfully transferred to initial owner ${initialOwnerAddress}`);
-              } else {
-                console.log(`Warning: Asset ${assetId} created but may not have been transferred to initial owner yet`);
-              }
-            } catch (error) {
-              console.log("Could not verify asset transfer to initial owner:", error);
-            }
-            
             return assetId;
           }
           
@@ -677,11 +608,6 @@ export class AlgorandService {
             'Network issue encountered while creating title. If you received an asset ID, you can verify the ' +
             'status manually at: https://testnet.algoexplorer.io/ \n' +
             'Please check your connection and try again if needed.'
-          );
-        } else if (error.message.includes('receiver must opt-in') || error.message.includes('not opted in')) {
-          throw new Error(
-            `The initial owner address must opt-in to receive assets before the land title can be transferred. ` +
-            `Please ask the owner to opt-in to asset transfers in their Algorand wallet, then try again.`
           );
         }
       }

@@ -1,6 +1,5 @@
 """
-Test script for creating a land title NFT using the ArdhiChain smart contract V2
-This version tests the direct ownership transfer functionality.
+Test script for creating a land title NFT using the ArdhiChain smart contract
 """
 
 import os
@@ -26,10 +25,7 @@ MIN_BALANCE_PER_ASSET = 100_000  # 0.1 ALGO per asset
 MIN_TXN_FEE = 1_000           # 0.001 ALGO
 FUNDING_AMOUNT = 25_000       # 0.025 ALGO to fund contract
 
-# Test owner address (replace with a real testnet address)
-TEST_OWNER_ADDRESS = "WYNQNDD3J5NEG55MOZ5RTGV45NTTHU5CACZ2QJ4EJNHDWINSYG2LFCBPWE"
-
-# ABI Contract Specification for V2
+# ABI Contract Specification
 contract_spec = {
     "name": "LandTitle",
     "methods": [
@@ -37,8 +33,7 @@ contract_spec = {
             "name": "create_title",
             "args": [
                 {"type": "string", "name": "land_id"},
-                {"type": "string", "name": "metadata_url"},
-                {"type": "address", "name": "initial_owner"}
+                {"type": "string", "name": "metadata_url"}
             ],
             "returns": {"type": "uint64"}
         }
@@ -129,33 +124,11 @@ def find_asset_id_in_transaction(algod_client, tx_id):
         print(f"Error inspecting transaction: {e}")
         return None
 
-def verify_asset_ownership(algod_client, asset_id, expected_owner):
-    """Verify that the asset is owned by the expected owner"""
-    try:
-        print(f"Verifying ownership of asset {asset_id} by {expected_owner}...")
-        
-        # Get account info for the expected owner
-        account_info = algod_client.account_information(expected_owner)
-        assets = account_info.get('assets', [])
-        
-        # Check if the asset is in the owner's assets
-        for asset in assets:
-            if asset['asset-id'] == asset_id and asset['amount'] > 0:
-                print(f"✓ Asset {asset_id} is owned by {expected_owner}")
-                return True
-        
-        print(f"✗ Asset {asset_id} is NOT owned by {expected_owner}")
-        return False
-        
-    except Exception as e:
-        print(f"Error verifying asset ownership: {e}")
-        return False
-
 def test_create_title():
-    """Test creating a new land title NFT with direct ownership transfer"""
+    """Test creating a new land title NFT"""
     
     # Initialize Algod client
-    algod_client = algod.AlgodClient(ALGOD_TOKEN, ALGOD_ADDRESS, headers={"User-Agent": "ArdhiChain/2.0"})
+    algod_client = algod.AlgodClient(ALGOD_TOKEN, ALGOD_ADDRESS, headers={"User-Agent": "ArdhiChain/1.0"})
     
     # Get admin account from environment variable
     admin_private_key = os.getenv('ADMIN_PRIVATE_KEY')
@@ -166,14 +139,13 @@ def test_create_title():
     # Get the admin address
     admin_address = account.address_from_private_key(admin_private_key)
     print(f"Using admin address: {admin_address}")
-    print(f"Test owner address: {TEST_OWNER_ADDRESS}")
     
     try:
         # Step 1: Fund the contract account
         fund_contract_account(algod_client, APP_ID, admin_private_key)
         
-        # Step 2: Create the NFT through smart contract with direct ownership
-        print("\nCreating NFT with direct ownership transfer...")
+        # Step 2: Create the NFT through smart contract
+        print("\nCreating NFT...")
         print("Preparing transaction arguments...")
         
         # Initialize ABI contract and get method
@@ -184,7 +156,7 @@ def test_create_title():
         atc = AtomicTransactionComposer()
         signer = AccountTransactionSigner(admin_private_key)
         
-        # Add create_title method call with initial owner
+        # Add create_title method call
         sp = retry_with_backoff(algod_client.suggested_params)
         
         atc.add_method_call(
@@ -193,7 +165,7 @@ def test_create_title():
             sender=admin_address,
             sp=sp,
             signer=signer,
-            method_args=["TEST-PLOT-V2-001", "ipfs://QmTestV2123", TEST_OWNER_ADDRESS]
+            method_args=["TEST-PLOT-001", "ipfs://QmTest123"]
         )
         
         # Execute transaction with retry
@@ -221,23 +193,32 @@ def test_create_title():
             
         print(f"Success! Asset ID: {asset_id}")
         
-        # Step 3: Verify ownership transfer
-        print(f"\nVerifying asset ownership...")
-        time.sleep(2)  # Wait a moment for indexer to update
+        # Verify admin has enough balance for opt-in
+        print("\nChecking balance for opt-in...")
+        operation_cost = MIN_TXN_FEE
+        check_account_balance(algod_client, admin_address, operation_cost)
         
-        ownership_verified = verify_asset_ownership(algod_client, asset_id, TEST_OWNER_ADDRESS)
+        # Step 3: Opt-in to the asset
+        print("\nOpting in to the asset...")
+        params = retry_with_backoff(algod_client.suggested_params)
+        opt_in_txn = transaction.AssetOptInTxn(
+            sender=admin_address,
+            sp=params,
+            index=asset_id
+        )
         
-        if ownership_verified:
-            print(f"\n✓ SUCCESS: Land title NFT created and transferred successfully!")
-            print(f"  - Asset ID: {asset_id}")
-            print(f"  - Owner: {TEST_OWNER_ADDRESS}")
-            print(f"  - Transaction: https://testnet.algoexplorer.io/tx/{result.tx_ids[0]}")
-            print(f"  - Asset: https://testnet.algoexplorer.io/asset/{asset_id}")
-        else:
-            print(f"\n⚠ WARNING: Asset created but ownership transfer may be pending")
-            print(f"  - Asset ID: {asset_id}")
-            print(f"  - Expected Owner: {TEST_OWNER_ADDRESS}")
-            print(f"  - Check manually: https://testnet.algoexplorer.io/asset/{asset_id}")
+        signed_opt_in = opt_in_txn.sign(admin_private_key)
+        tx_id = retry_with_backoff(algod_client.send_transaction, signed_opt_in)
+        print(f"Opt-in Transaction ID: {tx_id}")
+        
+        # Wait for opt-in confirmation
+        def wait_for_opt_in():
+            return transaction.wait_for_confirmation(algod_client, tx_id, 4)
+        confirmed_txn = retry_with_backoff(wait_for_opt_in)
+        print("Opt-in confirmed!")
+        
+        print("\nLand title NFT setup completed successfully!")
+        print(f"Asset ID: {asset_id}")
             
     except Exception as e:
         print(f"Error creating land title: {str(e)}")
