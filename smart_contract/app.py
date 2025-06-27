@@ -1,9 +1,9 @@
 """
-ArdhiChain Smart Contract - Land Registry on Algorand
+ArdhiChain Smart Contract V2 - Land Registry on Algorand with Direct User Ownership
 
 This PyTEAL/Beaker smart contract manages land title NFTs on the Algorand blockchain.
-It allows authorized administrators to create land title NFTs and provides
-verification functionality for public use.
+It allows authorized administrators to create land title NFTs that are immediately
+transferred to specified owners, enabling direct user ownership.
 
 Requirements:
 - pip install beaker-pyteal pyteal
@@ -48,16 +48,18 @@ def create(admin_addr: abi.Address) -> Expr:
 def create_title(
     land_id: abi.String,
     metadata_url: abi.String,
+    initial_owner: abi.Address,
     *,
     output: abi.Uint64
 ) -> Expr:
     """
-    Creates a new Land Title NFT (ASA).
+    Creates a new Land Title NFT (ASA) and transfers it to the initial owner.
     Only the admin can call this method.
     
     Args:
         land_id: Unique identifier for the land (used as asset name)
         metadata_url: IPFS URL containing property metadata
+        initial_owner: Address that will receive the newly created NFT
         
     Returns:
         The newly created Asset ID
@@ -75,41 +77,27 @@ def create_title(
             TxnField.config_asset_name: land_id.get(),
             TxnField.config_asset_unit_name: Bytes("ARDHI"),  # Unit name for identification
             TxnField.config_asset_url: metadata_url.get(),
-            # Set all management addresses to the contract for immutability
-            TxnField.config_asset_manager: Global.current_application_address(),
-            TxnField.config_asset_reserve: Global.current_application_address(),
-            TxnField.config_asset_freeze: Global.current_application_address(),
-            TxnField.config_asset_clawback: Global.current_application_address(),
+            # Set management addresses to zero address for immutability
+            TxnField.config_asset_manager: Global.zero_address(),
+            TxnField.config_asset_reserve: Global.zero_address(),
+            TxnField.config_asset_freeze: Global.zero_address(),
+            TxnField.config_asset_clawback: Global.zero_address(),
+        }),
+        InnerTxnBuilder.Submit(),
+        
+        # Transfer the newly created NFT to the initial owner
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.asset_receiver: initial_owner.get(),
+            TxnField.asset_sender: Global.current_application_address(),
+            TxnField.xfer_asset: InnerTxn.created_asset_id(),
+            TxnField.asset_amount: Int(1)
         }),
         InnerTxnBuilder.Submit(),
         
         # Store created asset ID in the output
         output.set(InnerTxn.created_asset_id()),
-        
-        Approve()
-    ])
-
-@app.external
-def transfer_title(asset_id: abi.Uint64, receiver: abi.Address) -> Expr:
-    """
-    Transfer an NFT to a receiver.
-    The receiver must have already opted in to the asset.
-    
-    Args:
-        asset_id: The ID of the NFT to transfer
-        receiver: The address to receive the NFT
-    """
-    return Seq([
-        # Only contract can transfer the NFT since it's the manager
-        InnerTxnBuilder.Begin(),
-        InnerTxnBuilder.SetFields({
-            TxnField.type_enum: TxnType.AssetTransfer,
-            TxnField.asset_receiver: receiver.get(),
-            TxnField.asset_sender: Global.current_application_address(),
-            TxnField.xfer_asset: asset_id.get(),
-            TxnField.asset_amount: Int(1)
-        }),
-        InnerTxnBuilder.Submit(),
         
         Approve()
     ])
@@ -149,5 +137,5 @@ def get_admin(*, output: abi.Address) -> Expr:
 if __name__ == "__main__":
     # This would be used for deployment
     # The actual deployment should be done using the Algorand SDK
-    print("ArdhiChain Smart Contract")
+    print("ArdhiChain Smart Contract V2")
     print("Compile with: python -c 'from app import app; print(app.build().teal)'")
