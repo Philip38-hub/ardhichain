@@ -83,6 +83,16 @@ def create_title(
         }),
         InnerTxnBuilder.Submit(),
         
+        # Contract must opt-in to the newly created asset
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.xfer_asset: InnerTxn.created_asset_id(),
+            TxnField.asset_receiver: Global.current_application_address(),
+            TxnField.asset_amount: Int(0)  # Opt-in transaction
+        }),
+        InnerTxnBuilder.Submit(),
+        
         # Store created asset ID in the output
         output.set(InnerTxn.created_asset_id()),
         
