@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, FileText, Send, ExternalLink } from 'lucide-react';
+import { MapPin, FileText, Send, ExternalLink, AlertCircle, CheckCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AlgorandService } from '../services/algorand';
 import { IPFSService } from '../services/ipfs';
@@ -15,6 +15,8 @@ export const MyTitles: React.FC = () => {
     salePrice: ''
   });
   const [isTransferring, setIsTransferring] = useState(false);
+  const [transferSuccess, setTransferSuccess] = useState('');
+  const [transferError, setTransferError] = useState('');
 
   useEffect(() => {
     console.log("MyTitles useEffect triggered");
@@ -141,24 +143,47 @@ export const MyTitles: React.FC = () => {
 
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTitle || !transferData.buyerAddress) return;
+    if (!selectedTitle || !transferData.buyerAddress || !account) return;
 
     setIsTransferring(true);
+    setTransferSuccess('');
+    setTransferError('');
+
     try {
-      await AlgorandService.transferAsset(
-        account!,
-        transferData.buyerAddress,
+      await AlgorandService.userTransferTitle(
+        account,
         selectedTitle.assetId,
+        transferData.buyerAddress,
         peraWallet
       );
 
-      alert('Transfer successful!');
-      setSelectedTitle(null);
+      setTransferSuccess('Transfer completed successfully!');
       setTransferData({ buyerAddress: '', salePrice: '' });
-      loadTitles(); // Reload titles
+      
+      // Close modal after a short delay
+      setTimeout(() => {
+        setSelectedTitle(null);
+        setTransferSuccess('');
+        loadTitles(); // Reload titles to reflect the transfer
+      }, 2000);
+      
     } catch (error) {
       console.error('Transfer failed:', error);
-      alert('Transfer failed. Please try again.');
+      let message = 'Transfer failed. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('User rejected')) {
+          message = 'Transfer was rejected in the Pera Wallet app.';
+        } else if (error.message.includes('overspend') || error.message.includes('Insufficient funds')) {
+          message = 'Insufficient funds to complete the transfer.';
+        } else if (error.message.includes('asset not opted in')) {
+          message = 'The buyer has not opted in to this asset. They must opt in first before receiving the transfer.';
+        } else if (error.message.includes('balance') && error.message.includes('0')) {
+          message = 'You do not own this asset or it has already been transferred.';
+        } else {
+          message = `Transfer failed: ${error.message}`;
+        }
+      }
+      setTransferError(message);
     } finally {
       setIsTransferring(false);
     }
@@ -245,7 +270,11 @@ export const MyTitles: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <h2 className="text-2xl font-bold text-gray-900">{selectedTitle.landId}</h2>
                   <button
-                    onClick={() => setSelectedTitle(null)}
+                    onClick={() => {
+                      setSelectedTitle(null);
+                      setTransferSuccess('');
+                      setTransferError('');
+                    }}
                     className="text-gray-400 hover:text-gray-600 text-xl"
                   >
                     ×
@@ -291,6 +320,21 @@ export const MyTitles: React.FC = () => {
 
                 <div className="border-t border-gray-200 pt-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Transfer Ownership</h3>
+                  
+                  {transferSuccess && (
+                    <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
+                      <CheckCircle size={18} />
+                      {transferSuccess}
+                    </div>
+                  )}
+                  
+                  {transferError && (
+                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
+                      <AlertCircle size={18} />
+                      {transferError}
+                    </div>
+                  )}
+
                   <form onSubmit={handleTransfer} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -304,6 +348,9 @@ export const MyTitles: React.FC = () => {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter buyer's wallet address..."
                       />
+                      <p className="text-sm text-gray-500 mt-1">
+                        The buyer must have opted in to this asset first
+                      </p>
                     </div>
                     
                     <div>
@@ -319,6 +366,19 @@ export const MyTitles: React.FC = () => {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="0.0"
                       />
+                      <p className="text-sm text-gray-500 mt-1">
+                        For record keeping only - payment is handled separately
+                      </p>
+                    </div>
+
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={18} />
+                        <div className="text-sm text-yellow-800">
+                          <p className="font-medium mb-1">Important:</p>
+                          <p>The buyer must have opted in to asset ID {selectedTitle.assetId} before you can transfer it to them.</p>
+                        </div>
+                      </div>
                     </div>
 
                     <button

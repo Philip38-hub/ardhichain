@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Upload, MapPin, Ruler, Building, AlertCircle, Smartphone, CheckCircle } from 'lucide-react';
+import { FileText, Upload, MapPin, Ruler, Building, AlertCircle, Smartphone, CheckCircle, Send, ArrowRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { IPFSService } from '../services/ipfs';
 import { AlgorandService } from '../services/algorand';
@@ -18,6 +18,16 @@ export const AdminDashboard: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [transactionStatus, setTransactionStatus] = useState<'idle' | 'uploading' | 'signing' | 'processing' | 'complete'>('idle');
+  const [createdAssetId, setCreatedAssetId] = useState<number | null>(null);
+
+  // Transfer to owner state
+  const [transferData, setTransferData] = useState({
+    assetId: '',
+    ownerAddress: ''
+  });
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferSuccessMessage, setTransferSuccessMessage] = useState('');
+  const [transferErrorMessage, setTransferErrorMessage] = useState('');
 
   if (!isAdmin) {
     return (
@@ -54,6 +64,7 @@ export const AdminDashboard: React.FC = () => {
     setSuccessMessage('');
     setErrorMessage('');
     setTransactionStatus('uploading');
+    setCreatedAssetId(null);
 
     try {
       // Upload document to IPFS
@@ -91,7 +102,11 @@ export const AdminDashboard: React.FC = () => {
       
       // Update status to complete
       setTransactionStatus('complete');
-      setSuccessMessage(`Land title created successfully! Asset ID: ${assetId}`);
+      setCreatedAssetId(assetId);
+      setSuccessMessage(`Land title created successfully! Asset ID: ${assetId}. You can now transfer this title to its owner using the form below.`);
+      
+      // Pre-fill the transfer form with the created asset ID
+      setTransferData(prev => ({ ...prev, assetId: assetId.toString() }));
       
       // Reset form
       setFormData({
@@ -131,17 +146,57 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleTransferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferData.assetId || !transferData.ownerAddress || !account) return;
+
+    setIsTransferring(true);
+    setTransferSuccessMessage('');
+    setTransferErrorMessage('');
+
+    try {
+      await AlgorandService.adminTransferTitle(
+        account,
+        parseInt(transferData.assetId),
+        transferData.ownerAddress,
+        peraWallet
+      );
+
+      setTransferSuccessMessage(`Title successfully transferred to ${transferData.ownerAddress}!`);
+      setTransferData({ assetId: '', ownerAddress: '' });
+      
+    } catch (error) {
+      console.error('Error transferring title:', error);
+      let message = 'Failed to transfer title. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('User rejected')) {
+          message = 'Transfer was rejected in the Pera Wallet app.';
+        } else if (error.message.includes('overspend') || error.message.includes('Insufficient funds')) {
+          message = 'Insufficient funds to complete the transfer.';
+        } else if (error.message.includes('asset not opted in')) {
+          message = 'The receiver has not opted in to this asset. They must opt in first before receiving the transfer.';
+        } else {
+          message = `Transfer failed: ${error.message}`;
+        }
+      }
+      setTransferErrorMessage(message);
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-2xl mx-auto px-4">
+      <div className="max-w-4xl mx-auto px-4 space-y-8">
+        {/* Create Land Title Section */}
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
               <FileText className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-gray-600">Create new land title NFTs</p>
+              <h1 className="text-2xl font-bold text-gray-900">Create Land Title NFT</h1>
+              <p className="text-gray-600">Create new land title NFTs on the blockchain</p>
             </div>
           </div>
 
@@ -283,6 +338,99 @@ export const AdminDashboard: React.FC = () => {
                 <>
                   <FileText className="w-5 h-5" />
                   Create Land Title NFT
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Transfer Title to Owner Section */}
+        <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+              <Send className="w-6 h-6 text-green-600" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Transfer Title to Owner</h2>
+              <p className="text-gray-600">Transfer created land titles to their rightful owners</p>
+            </div>
+          </div>
+
+          {transferSuccessMessage && (
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+              <CheckCircle size={18} />
+              {transferSuccessMessage}
+            </div>
+          )}
+          
+          {transferErrorMessage && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+              <AlertCircle size={18} />
+              {transferErrorMessage}
+            </div>
+          )}
+
+          <form onSubmit={handleTransferSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Asset ID
+                </label>
+                <input
+                  type="number"
+                  value={transferData.assetId}
+                  onChange={(e) => setTransferData(prev => ({ ...prev, assetId: e.target.value }))}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Enter Asset ID"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  The Asset ID of the land title to transfer
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Owner's Wallet Address
+                </label>
+                <input
+                  type="text"
+                  value={transferData.ownerAddress}
+                  onChange={(e) => setTransferData(prev => ({ ...prev, ownerAddress: e.target.value }))}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Enter owner's Algorand address"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  The owner must have opted in to this asset first
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={18} />
+                <div className="text-sm text-yellow-800">
+                  <p className="font-medium mb-1">Important:</p>
+                  <p>The recipient must have opted in to the asset before you can transfer it to them. They need the Asset ID to opt in.</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isTransferring}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {isTransferring ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Transferring...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="w-5 h-5" />
+                  Transfer to Owner
                 </>
               )}
             </button>

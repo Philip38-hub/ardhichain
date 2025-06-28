@@ -194,6 +194,136 @@ export class AlgorandService {
     }
   }
 
+  static async adminTransferTitle(
+    adminAccount: string,
+    assetId: number,
+    receiverAddress: string,
+    peraWallet: any
+  ): Promise<void> {
+    try {
+      console.log("Starting admin transfer:", { adminAccount, assetId, receiverAddress });
+      
+      // Get suggested parameters
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+      
+      // Create ABI contract instance
+      const contractSpec = {
+        name: "LandTitle",
+        methods: [
+          {
+            name: "admin_transfer_title",
+            args: [
+              { type: "uint64", name: "asset_id" },
+              { type: "address", name: "receiver" }
+            ],
+            returns: { type: "void" }
+          }
+        ]
+      };
+
+      const contract = new algosdk.ABIContract(contractSpec);
+      const adminTransferMethod = contract.getMethodByName("admin_transfer_title");
+      
+      // Create AtomicTransactionComposer
+      const atc = new algosdk.AtomicTransactionComposer();
+      
+      // Create signer
+      const signer = (txnGroup: algosdk.Transaction[]): Promise<Uint8Array[]> => {
+        return peraWallet.signTransaction([
+          txnGroup.map(txn => ({
+            txn: txn,
+            signers: [adminAccount]
+          }))
+        ]).then((signed: any) => Array.isArray(signed) ? signed.flat() : [signed]);
+      };
+      
+      // Add method call
+      atc.addMethodCall({
+        appID: appId,
+        method: adminTransferMethod,
+        sender: adminAccount,
+        suggestedParams: suggestedParams,
+        methodArgs: [assetId, receiverAddress],
+        signer
+      });
+
+      // Execute the transaction
+      console.log("Executing admin transfer transaction...");
+      const result = await atc.execute(algodClient, 4);
+      console.log("Admin transfer completed successfully:", result.txIDs);
+      
+    } catch (error) {
+      console.error("Error in admin transfer:", error);
+      throw new Error(`Failed to transfer title: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  static async userTransferTitle(
+    senderAccount: string,
+    assetId: number,
+    receiverAddress: string,
+    peraWallet: any
+  ): Promise<void> {
+    try {
+      console.log("Starting user transfer:", { senderAccount, assetId, receiverAddress });
+      
+      // Get suggested parameters
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+      
+      // Create ABI contract instance
+      const contractSpec = {
+        name: "LandTitle",
+        methods: [
+          {
+            name: "user_transfer_title",
+            args: [
+              { type: "uint64", name: "asset_id" },
+              { type: "address", name: "receiver" }
+            ],
+            returns: { type: "void" }
+          }
+        ]
+      };
+
+      const contract = new algosdk.ABIContract(contractSpec);
+      const userTransferMethod = contract.getMethodByName("user_transfer_title");
+      
+      // Create AtomicTransactionComposer
+      const atc = new algosdk.AtomicTransactionComposer();
+      
+      // Create signer
+      const signer = (txnGroup: algosdk.Transaction[]): Promise<Uint8Array[]> => {
+        return peraWallet.signTransaction([
+          txnGroup.map(txn => ({
+            txn: txn,
+            signers: [senderAccount]
+          }))
+        ]).then((signed: any) => Array.isArray(signed) ? signed.flat() : [signed]);
+      };
+      
+      // Add method call
+      atc.addMethodCall({
+        appID: appId,
+        method: userTransferMethod,
+        sender: senderAccount,
+        suggestedParams: suggestedParams,
+        methodArgs: [assetId, receiverAddress],
+        signer
+      });
+
+      // Execute the transaction
+      console.log("Executing user transfer transaction...");
+      const result = await atc.execute(algodClient, 4);
+      console.log("User transfer completed successfully:", result.txIDs);
+      
+    } catch (error) {
+      console.error("Error in user transfer:", error);
+      throw new Error(`Failed to transfer title: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   static async createTitle(
     account: string,
     landId: string,
@@ -613,5 +743,15 @@ export class AlgorandService {
       }
       throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  // Legacy method for backward compatibility
+  static async transferAsset(
+    senderAccount: string,
+    receiverAddress: string,
+    assetId: number,
+    peraWallet: any
+  ): Promise<void> {
+    return this.userTransferTitle(senderAccount, assetId, receiverAddress, peraWallet);
   }
 }
