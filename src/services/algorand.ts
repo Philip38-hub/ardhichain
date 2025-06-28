@@ -92,6 +92,16 @@ export class AlgorandService {
       
       return assets;
     } catch (error) {
+      // Check if this is a 404 "no accounts found" error - this is expected for new/unused addresses
+      if (error instanceof Error && 
+          error.message.includes('status 404') && 
+          error.message.includes('no accounts found for address')) {
+        console.warn(`Account not found in indexer (this is normal for new addresses): ${address}`);
+        console.warn('This typically means the address has not been used yet or the indexer is not fully synced');
+        return [];
+      }
+      
+      // For all other errors, log as error and re-throw
       console.error('Error fetching account assets:', error);
       console.error('Error details:', {
         message: error instanceof Error ? error.message : 'Unknown error',
