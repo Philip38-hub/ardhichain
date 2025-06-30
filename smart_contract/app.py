@@ -77,12 +77,12 @@ def create_title(
             TxnField.config_asset_url: metadata_url.get(),
             # Set all management addresses to the contract for immutability
             TxnField.config_asset_manager: Global.current_application_address(),
-            TxnField.config_asset_reserve: Global.current_application_address(),
+            TxnField.config_asset_reserve: Txn.sender(),  # Admin is reserve
             TxnField.config_asset_freeze: Global.current_application_address(),
             TxnField.config_asset_clawback: Global.current_application_address(),
         }),
         InnerTxnBuilder.Submit(),
-        
+
         # Contract must opt-in to the newly created asset
         InnerTxnBuilder.Begin(),
         InnerTxnBuilder.SetFields({
@@ -92,6 +92,9 @@ def create_title(
             TxnField.asset_amount: Int(0)  # Opt-in transaction
         }),
         InnerTxnBuilder.Submit(),
+
+        # Note: After asset creation, admin (reserve) must send the asset to the contract address
+        # so the contract can hold and transfer it.
         
         # Store created asset ID in the output
         output.set(InnerTxn.created_asset_id()),
