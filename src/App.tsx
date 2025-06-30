@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { Navigation } from './components/Navigation';
@@ -12,6 +11,20 @@ function App() {
     <AppProvider>
       <Router>
         <div className="min-h-screen bg-gray-50">
+          {/* Bolt.new logo at top right */}
+          <a
+            href="https://bolt.new/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="fixed top-4 right-4 z-50"
+            style={{ lineHeight: 0 }}
+          >
+            <img
+              src="/black_circle_360x360.png"
+              alt="Powered by Bolt.new"
+              className="w-24 h-24 rounded-full shadow-lg hover:scale-105 transition-transform duration-200"
+            />
+          </a>
           <Navigation />
           <Routes>
             <Route path="/" element={<Home />} />

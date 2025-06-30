@@ -13,16 +13,23 @@ function safeStringify(obj: any): string {
   });
 }
 
+// Add common headers to identify the client application
+const commonHeaders = {
+  'User-Agent': 'LandTitle-DApp/1.0.0'
+};
+
 const algodClient = new algosdk.Algodv2(
   '',
   import.meta.env.VITE_ALGOD_NODE_URL,
-  ''
+  undefined,
+  commonHeaders
 );
 
 const indexerClient = new algosdk.Indexer(
   '',
   import.meta.env.VITE_INDEXER_URL,
-  ''
+  undefined,
+  commonHeaders
 );
 
 export class AlgorandService {
@@ -81,6 +88,7 @@ export class AlgorandService {
 
   static async getAccountAssets(address: string): Promise<any[]> {
     try {
+
       console.log('Fetching assets for address:', address);
       console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
       
@@ -103,6 +111,7 @@ export class AlgorandService {
       
       // For all other errors, log as error and re-throw
       console.error('Error fetching account assets:', error);
+
       console.error('Error details:', {
         message: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined
@@ -193,6 +202,7 @@ export class AlgorandService {
 
   static async getAssetTransactions(assetId: number): Promise<any[]> {
     try {
+      console.log('Fetching asset transactions for ID:', assetId);
       const transactions = await indexerClient
         .lookupAssetTransactions(assetId)
         .limit(100)
@@ -200,6 +210,15 @@ export class AlgorandService {
       return transactions.transactions || [];
     } catch (error) {
       console.error('Error fetching asset transactions:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+          throw new Error(
+            'Unable to connect to Algorand Indexer. Please check your internet connection and try again.'
+          );
+        }
+      }
+      
       return [];
     }
   }
@@ -754,6 +773,7 @@ export class AlgorandService {
       throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
+
 
   // Legacy method for backward compatibility
   static async transferAsset(
