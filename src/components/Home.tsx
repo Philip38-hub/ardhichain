@@ -37,10 +37,10 @@ export const Home: React.FC = () => {
       {/* Hero Section */}
       <div className="max-w-7xl mx-auto px-4 py-16">
         <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold text-gray-900 mb-6">
-            Welcome to <span className="text-blue-600">ArdhiChain</span>
+          <h1 className="text-5xl font-bold text-white mb-6 drop-shadow-md">
+            Welcome to <span className="text-blue-400">ArdhiChain</span>
           </h1>
-          <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
+          <p className="text-xl text-gray-200 mb-8 max-w-3xl mx-auto drop-shadow-sm">
             The future of land registry is here. Secure, transparent, and decentralized land title management 
             powered by the Algorand blockchain.
           </p>
@@ -108,14 +108,14 @@ export const Home: React.FC = () => {
 
         {/* How it Works */}
         <div className="mt-16">
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">How ArdhiChain Works</h2>
+          <h2 className="text-3xl font-bold text-center text-white mb-12 drop-shadow-md">How ArdhiChain Works</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="w-8 h-8 text-blue-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">1. Mint NFT</h3>
-              <p className="text-gray-600">
+              <h3 className="text-xl font-semibold text-white mb-2 drop-shadow-sm">1. Mint NFT</h3>
+              <p className="text-gray-200">
                 Government administrators create unique NFTs for each land title with official documentation stored on IPFS.
               </p>
             </div>
@@ -123,8 +123,8 @@ export const Home: React.FC = () => {
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <FileText className="w-8 h-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">2. Own & Transfer</h3>
-              <p className="text-gray-600">
+              <h3 className="text-xl font-semibold text-white mb-2 drop-shadow-sm">2. Own & Transfer</h3>
+              <p className="text-gray-200">
                 Landowners can view their titles and transfer ownership through secure blockchain transactions.
               </p>
             </div>
@@ -132,8 +132,8 @@ export const Home: React.FC = () => {
               <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Search className="w-8 h-8 text-purple-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">3. Verify Publicly</h3>
-              <p className="text-gray-600">
+              <h3 className="text-xl font-semibold text-white mb-2 drop-shadow-sm">3. Verify Publicly</h3>
+              <p className="text-gray-200">
                 Anyone can verify land ownership and authenticity using the public verification system.
               </p>
             </div>

@@ -71,12 +71,12 @@ export const PublicVerification: React.FC = () => {
   return (
     <div 
       className="min-h-screen p-4 md:p-8 bg-cover bg-center bg-no-repeat bg-fixed"
-      style={{ backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url(/ardhi.jpg)' }}
+      style={{ backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url(/ardhi.jpg)' }}
     >
       <div className="max-w-4xl mx-auto px-4">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Public Land Title Verification</h1>
-          <p className="text-gray-600">Verify the authenticity and ownership of any land title</p>
+          <h1 className="text-4xl font-bold text-white mb-3 drop-shadow-md">Public Land Title Verification</h1>
+          <p className="text-xl text-gray-200 drop-shadow-sm">Verify the authenticity and ownership of any land title</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
