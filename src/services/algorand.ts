@@ -18,16 +18,31 @@ const commonHeaders = {
   'User-Agent': 'LandTitle-DApp/1.0.0'
 };
 
+// Use proxied URLs in development, direct URLs in production
+const getAlgodUrl = () => {
+  if (import.meta.env.DEV) {
+    return '/api/algod';
+  }
+  return import.meta.env.VITE_ALGOD_NODE_URL;
+};
+
+const getIndexerUrl = () => {
+  if (import.meta.env.DEV) {
+    return '/api/indexer';
+  }
+  return import.meta.env.VITE_INDEXER_URL;
+};
+
 const algodClient = new algosdk.Algodv2(
   '',
-  import.meta.env.VITE_ALGOD_NODE_URL,
+  getAlgodUrl(),
   undefined,
   commonHeaders
 );
 
 const indexerClient = new algosdk.Indexer(
   '',
-  import.meta.env.VITE_INDEXER_URL,
+  getIndexerUrl(),
   undefined,
   commonHeaders
 );
@@ -80,7 +95,7 @@ export class AlgorandService {
       console.error("Error getting contract assets:", {
         error: error instanceof Error ? error.message : error,
         appId,
-        indexerUrl: import.meta.env.VITE_INDEXER_URL
+        indexerUrl: getIndexerUrl()
       });
       return [];
     }
@@ -90,7 +105,7 @@ export class AlgorandService {
     try {
 
       console.log('Fetching assets for address:', address);
-      console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
+      console.log('Using indexer URL:', getIndexerUrl());
       
       const accountInfo = await indexerClient.lookupAccountByID(address).do();
       console.log('Raw account info:', accountInfo);
@@ -123,7 +138,7 @@ export class AlgorandService {
   static async getAssetInfo(assetId: number): Promise<any> {
     const maxRetries = 3;
     const retryDelay = 1000; // 1 second between retries
-    const indexerUrl = import.meta.env.VITE_INDEXER_URL;
+    const indexerUrl = getIndexerUrl();
     const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
 
     // First check if the contract holds this asset
@@ -152,7 +167,13 @@ export class AlgorandService {
         console.log(`Attempt ${attempt}/${maxRetries}: Fetching asset info for ID ${assetId} from ${indexerUrl}`);
         
         // Try direct HTTP request first to check raw response
-        const directResponse = await fetch(`${indexerUrl}/v2/assets/${assetId}`);
+        const directUrl = import.meta.env.DEV 
+          ? `/api/indexer/v2/assets/${assetId}`
+          : `${indexerUrl}/v2/assets/${assetId}`;
+        
+        const directResponse = await fetch(directUrl, {
+          headers: commonHeaders
+        });
         console.log(`Direct API Response:`, {
           status: directResponse.status,
           statusText: directResponse.statusText,
