@@ -10,6 +10,8 @@ function App() {
   return (
     <AppProvider>
       <Router>
+        <Routes>
+          <Navigation />
         <div className="min-h-screen bg-gray-50">
           {/* Bolt.new logo at top right */}
           <a
@@ -25,8 +27,6 @@ function App() {
               className="w-24 h-24 rounded-full shadow-lg hover:scale-105 transition-transform duration-200"
             />
           </a>
-          <Navigation />
-          <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/my-titles" element={<MyTitles />} />
