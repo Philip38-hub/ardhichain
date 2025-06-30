@@ -45,7 +45,12 @@ def create(admin_addr: abi.Address) -> Expr:
     ])
 
 @app.external
-def create_title(land_id: abi.String, metadata_url: abi.String) -> Expr:
+def create_title(
+    land_id: abi.String,
+    metadata_url: abi.String,
+    *,
+    output: abi.Uint64
+) -> Expr:
     """
     Creates a new Land Title NFT (ASA).
     Only the admin can call this method.
@@ -72,19 +77,98 @@ def create_title(land_id: abi.String, metadata_url: abi.String) -> Expr:
             TxnField.config_asset_url: metadata_url.get(),
             # Set all management addresses to the contract for immutability
             TxnField.config_asset_manager: Global.current_application_address(),
-            TxnField.config_asset_reserve: Global.current_application_address(),
+            TxnField.config_asset_reserve: Txn.sender(),  # Admin is reserve
             TxnField.config_asset_freeze: Global.current_application_address(),
             TxnField.config_asset_clawback: Global.current_application_address(),
         }),
         InnerTxnBuilder.Submit(),
-        
-        # Transfer the newly minted NFT to the admin
+
+        # Contract must opt-in to the newly created asset
         InnerTxnBuilder.Begin(),
         InnerTxnBuilder.SetFields({
             TxnField.type_enum: TxnType.AssetTransfer,
-            TxnField.asset_receiver: app.state.admin_address.get(),
-            TxnField.asset_sender: Global.current_application_address(),
             TxnField.xfer_asset: InnerTxn.created_asset_id(),
+            TxnField.asset_receiver: Global.current_application_address(),
+            TxnField.asset_amount: Int(0)  # Opt-in transaction
+        }),
+        InnerTxnBuilder.Submit(),
+
+        # Note: After asset creation, admin (reserve) must send the asset to the contract address
+        # so the contract can hold and transfer it.
+        
+        # Store created asset ID in the output
+        output.set(InnerTxn.created_asset_id()),
+        
+        Approve()
+    ])
+
+@app.external
+def admin_transfer_title(asset_id: abi.Uint64, receiver: abi.Address) -> Expr:
+    """
+    Transfer an NFT from the contract to the initial owner.
+    Only the admin can call this method.
+    The receiver must have already opted in to the asset.
+    
+    Args:
+        asset_id: The ID of the NFT to transfer
+        receiver: The address to receive the NFT
+    """
+    return Seq([
+        # Verify that sender is the admin
+        Assert(Txn.sender() == app.state.admin_address.get()),
+        
+        # Transfer the NFT from contract to receiver
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.asset_receiver: receiver.get(),
+            TxnField.asset_sender: Global.current_application_address(),
+            TxnField.xfer_asset: asset_id.get(),
+            TxnField.asset_amount: Int(1)
+        }),
+        InnerTxnBuilder.Submit(),
+        
+        Approve()
+    ])
+
+@app.external
+def user_transfer_title(asset_id: abi.Uint64, receiver: abi.Address) -> Expr:
+    """
+    Transfer an NFT from one user to another.
+    Only the current owner can call this method.
+    The receiver must have already opted in to the asset.
+    
+    Args:
+        asset_id: The ID of the NFT to transfer
+        receiver: The address to receive the NFT
+    """
+    # Check if sender owns the asset
+    sender_balance = AssetHolding.balance(Txn.sender(), asset_id.get())
+    
+    return Seq([
+        # Verify sender owns the asset
+        sender_balance,
+        Assert(sender_balance.hasValue()),
+        Assert(sender_balance.value() == Int(1)),
+        
+        # First, clawback the asset from sender to contract
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.asset_receiver: Global.current_application_address(),
+            TxnField.asset_sender: Txn.sender(),
+            TxnField.xfer_asset: asset_id.get(),
+            TxnField.asset_amount: Int(1)
+        }),
+        InnerTxnBuilder.Submit(),
+        
+        # Then, transfer the asset from contract to receiver
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.asset_receiver: receiver.get(),
+            TxnField.asset_sender: Global.current_application_address(),
+            TxnField.xfer_asset: asset_id.get(),
             TxnField.asset_amount: Int(1)
         }),
         InnerTxnBuilder.Submit(),
@@ -114,12 +198,14 @@ def verify_record(asa_id: abi.Uint64, *, output: abi.Address) -> Expr:
         Approve()
     ])
 
-@app.external(read_only=True) 
-def get_admin() -> Expr:
+@app.external(read_only=True)
+def get_admin(*, output: abi.Address) -> Expr:
     """
     Returns the current admin address.
+    Args:
+        output: The output parameter to store the admin address
     """
-    return app.state.admin_address.get()
+    return output.set(app.state.admin_address.get())
 
 # Deployment configuration
 if __name__ == "__main__":

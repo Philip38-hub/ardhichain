@@ -24,6 +24,8 @@ export interface AppContextType {
   peraWallet: any;
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
+  connectionInProgress: boolean;
+  connectionError: string | null;
 }
 
 export interface PropertyMetadata {
