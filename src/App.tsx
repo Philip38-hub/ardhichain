@@ -11,15 +11,15 @@ function App() {
   return (
     <AppProvider>
       <Router>
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 relative">
           <Navigation />
           
-          {/* Bolt.new logo positioned below navbar */}
+          {/* Bolt.new logo positioned to move with page content */}
           <a
             href="https://bolt.new/"
             target="_blank"
             rel="noopener noreferrer"
-            className="sticky top-20 right-4 z-50"
+            className="absolute top-20 right-4 z-50"
             style={{ lineHeight: 0 }}
           >
             <img
