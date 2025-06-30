@@ -69,7 +69,10 @@ export const PublicVerification: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div 
+      className="min-h-screen p-4 md:p-8 bg-cover bg-center bg-no-repeat bg-fixed"
+      style={{ backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url(/ardhi.jpg)' }}
+    >
       <div className="max-w-4xl mx-auto px-4">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Public Land Title Verification</h1>
@@ -185,7 +188,7 @@ export const PublicVerification: React.FC = () => {
 
               {result.transactions.length > 0 ? (
                 <div className="space-y-4">
-                  {result.transactions.slice(0, 10).map((tx, index) => (
+                  {result.transactions.slice(0, 10).map((tx) => (
                     <div key={tx.id} className="border border-gray-200 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-gray-700">
