@@ -19,7 +19,7 @@ function App() {
             href="https://bolt.new/"
             target="_blank"
             rel="noopener noreferrer"
-            className="fixed top-20 right-4 z-50"
+            className="sticky top-20 right-4 z-50"
             style={{ lineHeight: 0 }}
           >
             <img
