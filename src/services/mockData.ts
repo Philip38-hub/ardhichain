@@ -59,12 +59,25 @@ export const DEMO_TITLES: LandTitle[] = [
 ];
 
 export const isDemoMode = (): boolean => {
-  return import.meta.env.VITE_DEMO_MODE === 'true';
+  const demoMode = import.meta.env.VITE_DEMO_MODE;
+  console.log('Demo mode environment variable:', demoMode);
+  console.log('Demo mode type:', typeof demoMode);
+  console.log('All environment variables:', import.meta.env);
+  
+  // Check for various truthy values
+  return demoMode === 'true' || demoMode === true || demoMode === '1';
 };
 
 export const getDemoTitlesForAccount = (account: string): LandTitle[] => {
-  if (!isDemoMode()) return [];
+  console.log('getDemoTitlesForAccount called with account:', account);
+  console.log('isDemoMode():', isDemoMode());
   
+  if (!isDemoMode()) {
+    console.log('Demo mode is disabled, returning empty array');
+    return [];
+  }
+  
+  console.log('Demo mode is enabled, returning demo titles');
   return DEMO_TITLES.map(title => ({
     ...title,
     owner: account
