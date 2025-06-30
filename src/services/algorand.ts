@@ -13,38 +13,16 @@ function safeStringify(obj: any): string {
   });
 }
 
-// Add common headers to identify the client application
-const commonHeaders = {
-  'User-Agent': 'LandTitle-DApp/1.0.0'
-};
-
-// Use proxied URLs in development, direct URLs in production
-const getAlgodUrl = () => {
-  if (import.meta.env.DEV) {
-    return `${window.location.origin}/api/algod`;
-  }
-  return import.meta.env.VITE_ALGOD_NODE_URL;
-};
-
-const getIndexerUrl = () => {
-  if (import.meta.env.DEV) {
-    return `${window.location.origin}/api/indexer`;
-  }
-  return import.meta.env.VITE_INDEXER_URL;
-};
-
 const algodClient = new algosdk.Algodv2(
   '',
-  getAlgodUrl(),
-  undefined,
-  commonHeaders
+  import.meta.env.VITE_ALGOD_NODE_URL,
+  ''
 );
 
 const indexerClient = new algosdk.Indexer(
   '',
-  getIndexerUrl(),
-  undefined,
-  commonHeaders
+  import.meta.env.VITE_INDEXER_URL,
+  ''
 );
 
 export class AlgorandService {
@@ -95,7 +73,7 @@ export class AlgorandService {
       console.error("Error getting contract assets:", {
         error: error instanceof Error ? error.message : error,
         appId,
-        indexerUrl: getIndexerUrl()
+        indexerUrl: import.meta.env.VITE_INDEXER_URL
       });
       return [];
     }
@@ -103,9 +81,8 @@ export class AlgorandService {
 
   static async getAccountAssets(address: string): Promise<any[]> {
     try {
-
       console.log('Fetching assets for address:', address);
-      console.log('Using indexer URL:', getIndexerUrl());
+      console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
       
       const accountInfo = await indexerClient.lookupAccountByID(address).do();
       console.log('Raw account info:', accountInfo);
@@ -126,7 +103,6 @@ export class AlgorandService {
       
       // For all other errors, log as error and re-throw
       console.error('Error fetching account assets:', error);
-
       console.error('Error details:', {
         message: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined
@@ -138,7 +114,7 @@ export class AlgorandService {
   static async getAssetInfo(assetId: number): Promise<any> {
     const maxRetries = 3;
     const retryDelay = 1000; // 1 second between retries
-    const indexerUrl = getIndexerUrl();
+    const indexerUrl = import.meta.env.VITE_INDEXER_URL;
     const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
 
     // First check if the contract holds this asset
@@ -167,13 +143,7 @@ export class AlgorandService {
         console.log(`Attempt ${attempt}/${maxRetries}: Fetching asset info for ID ${assetId} from ${indexerUrl}`);
         
         // Try direct HTTP request first to check raw response
-        const directUrl = import.meta.env.DEV 
-          ? `/api/indexer/v2/assets/${assetId}`
-          : `${indexerUrl}/v2/assets/${assetId}`;
-        
-        const directResponse = await fetch(directUrl, {
-          headers: commonHeaders
-        });
+        const directResponse = await fetch(`${indexerUrl}/v2/assets/${assetId}`);
         console.log(`Direct API Response:`, {
           status: directResponse.status,
           statusText: directResponse.statusText,
@@ -223,7 +193,6 @@ export class AlgorandService {
 
   static async getAssetTransactions(assetId: number): Promise<any[]> {
     try {
-      console.log('Fetching asset transactions for ID:', assetId);
       const transactions = await indexerClient
         .lookupAssetTransactions(assetId)
         .limit(100)
@@ -231,15 +200,6 @@ export class AlgorandService {
       return transactions.transactions || [];
     } catch (error) {
       console.error('Error fetching asset transactions:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-          throw new Error(
-            'Unable to connect to Algorand Indexer. Please check your internet connection and try again.'
-          );
-        }
-      }
-      
       return [];
     }
   }
@@ -794,7 +754,6 @@ export class AlgorandService {
       throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-
 
   // Legacy method for backward compatibility
   static async transferAsset(
