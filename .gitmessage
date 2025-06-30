@@ -1,0 +1,65 @@
+# COMMIT MESSAGE TEMPLATE
+# =====================
+#
+# --- SUBJECT LINE (REQUIRED) ---
+# type(scope): concise description in imperative mood
+# [max 50 chars, hard limit 72]
+#
+# Types:
+#   feat:     New feature
+#   fix:      Bug fix
+#   docs:     Documentation changes
+#   style:    Code style/formatting (no functional changes)
+#   refactor: Code restructuring (no functional changes)
+#   perf:     Performance improvements
+#   test:     Adding/fixing tests
+#   build:    Build system or external dependencies
+#   ci:       CI configuration and scripts
+#   chore:    Maintenance tasks, dependencies
+#   revert:   Reverting previous changes
+#
+# Scope: Component affected (e.g., auth, api, ui)
+#
+# Examples:
+# ✓ feat(auth): implement JWT authentication
+# ✓ fix(api): handle null response from payment service
+# ✓ docs(readme): update installation instructions
+
+
+# --- BODY (RECOMMENDED) ---
+# Explain WHAT changed and WHY (not HOW)
+# - Provide context and motivation
+# - Mention alternatives considered
+# - Wrap at 72 characters
+#
+# Example:
+# The previous authentication method used session cookies
+# which didn't work well with our new microservice
+# architecture. JWT provides a stateless solution that
+# works across all services.
+
+
+# --- FOOTER (OPTIONAL) ---
+# Issue references and metadata
+#
+# Issue tracking:
+# Closes #123         (closes issue when merged)
+# Fixes #456          (fixes bug when merged)
+# Refs #789           (references related issue)
+#
+# Breaking changes:
+# BREAKING CHANGE: Description of the breaking change
+# and migration instructions for users.
+#
+# Co-authors:
+# Co-authored-by: Name <email@example.com>
+
+
+# --- TIPS ---
+# 1. Write in the imperative: "Add feature" not "Added feature"
+# 2. First line is a complete sentence without period
+# 3. Separate subject from body with a blank line
+# 4. Explain "why" not just "what" in the body
+# 5. Use bullet points (-) if helpful
+#
+# Delete these comments before submitting your commit
