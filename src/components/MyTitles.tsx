@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, FileText, Send, ExternalLink, AlertCircle, CheckCircle } from 'lucide-react';
+import { MapPin, FileText, Send, ExternalLink, AlertCircle, CheckCircle, Eye } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AlgorandService } from '../services/algorand';
 import { IPFSService } from '../services/ipfs';
 import { LandTitle, PropertyMetadata } from '../types';
+import { getDemoTitlesForAccount, isDemoMode } from '../services/mockData';
 
 export const MyTitles: React.FC = () => {
   const { account, peraWallet, isConnected } = useApp();
@@ -37,22 +38,31 @@ export const MyTitles: React.FC = () => {
       return;
     }
 
-    // Direct indexer search for created assets
-    try {
-      console.log("Attempting direct indexer search for created assets...");
-      const createdAssetsResponse = await fetch(
-        `${import.meta.env.VITE_INDEXER_URL}/v2/accounts/${account}/created-assets`
-      );
-      const createdAssets = await createdAssetsResponse.json();
-      console.log("Created assets from indexer:", createdAssets);
-    } catch (error) {
-      console.error("Error fetching created assets directly:", error);
-    }
-
     try {
       setLoading(true);
       console.log("Loading titles for account:", account);
       
+      // Check if demo mode is enabled
+      if (isDemoMode()) {
+        console.log("Demo mode enabled, loading demo titles");
+        const demoTitles = getDemoTitlesForAccount(account);
+        setTitles(demoTitles);
+        setLoading(false);
+        return;
+      }
+
+      // Direct indexer search for created assets
+      try {
+        console.log("Attempting direct indexer search for created assets...");
+        const createdAssetsResponse = await fetch(
+          `${import.meta.env.VITE_INDEXER_URL}/v2/accounts/${account}/created-assets`
+        );
+        const createdAssets = await createdAssetsResponse.json();
+        console.log("Created assets from indexer:", createdAssets);
+      } catch (error) {
+        console.error("Error fetching created assets directly:", error);
+      }
+
       // Get application ID and check contract's assets
       const appId = parseInt(import.meta.env.VITE_APP_ID);
       console.log("Smart contract app ID:", appId);
@@ -145,6 +155,21 @@ export const MyTitles: React.FC = () => {
     e.preventDefault();
     if (!selectedTitle || !transferData.buyerAddress || !account) return;
 
+    // Check if this is a demo title
+    if (isDemoMode() && selectedTitle.assetId >= 999000) {
+      setTransferSuccess('Demo transfer completed! In a real environment, this would transfer the NFT on the blockchain.');
+      setTransferData({ buyerAddress: '', salePrice: '' });
+      
+      // Close modal after a short delay
+      setTimeout(() => {
+        setSelectedTitle(null);
+        setTransferSuccess('');
+        // Remove the transferred title from the demo list
+        setTitles(prev => prev.filter(title => title.assetId !== selectedTitle.assetId));
+      }, 2000);
+      return;
+    }
+
     setIsTransferring(true);
     setTransferSuccess('');
     setTransferError('');
@@ -216,44 +241,78 @@ export const MyTitles: React.FC = () => {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Land Titles</h1>
-          <p className="text-gray-600">Manage your registered land properties</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">My Land Titles</h1>
+              <p className="text-gray-600">Manage your registered land properties</p>
+            </div>
+            {isDemoMode() && (
+              <div className="bg-blue-100 border border-blue-300 text-blue-800 px-4 py-2 rounded-lg flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                <span className="text-sm font-medium">Demo Mode Active</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {titles.length === 0 ? (
           <div className="bg-white rounded-xl shadow-lg p-12 text-center">
             <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No Land Titles Found</h3>
-            <p className="text-gray-600">You don't own any land titles yet.</p>
+            <p className="text-gray-600">
+              {isDemoMode() 
+                ? "Demo titles will appear here when demo mode is enabled in your environment variables."
+                : "You don't own any land titles yet."
+              }
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {titles.map((title) => (
               <div
                 key={title.assetId}
-                className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow cursor-pointer"
+                className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
                 onClick={() => setSelectedTitle(title)}
               >
                 <div className="p-6">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <MapPin className="w-5 h-5 text-green-600" />
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <MapPin className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{title.landId}</h3>
-                      <p className="text-sm text-gray-500">Asset ID: {title.assetId}</p>
+                      <h3 className="font-bold text-gray-900 text-lg">{title.landId}</h3>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        Asset ID: {title.assetId}
+                        {isDemoMode() && title.assetId >= 999000 && (
+                          <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium">DEMO</span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   
-                  <div className="space-y-2 text-sm">
-                    <p><span className="font-medium">Location:</span> {title.location}</p>
-                    <p><span className="font-medium">Area:</span> {title.area}</p>
-                    <p><span className="font-medium">Municipality:</span> {title.municipality}</p>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <span className="font-medium text-gray-700">Location:</span>
+                        <p className="text-gray-600">{title.location}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-gray-400 rounded-sm flex-shrink-0"></div>
+                      <span className="font-medium text-gray-700">Area:</span>
+                      <span className="text-gray-600">{title.area}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-gray-400 rounded-full flex-shrink-0"></div>
+                      <span className="font-medium text-gray-700">Municipality:</span>
+                      <span className="text-gray-600">{title.municipality}</span>
+                    </div>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
-                      View Details
+                  <div className="mt-6 pt-4 border-t border-gray-100">
+                    <button className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white py-3 px-4 rounded-lg text-sm font-medium transition-all duration-200 transform hover:scale-105 shadow-md hover:shadow-lg">
+                      View Details & Transfer
                     </button>
                   </div>
                 </div>
@@ -268,14 +327,27 @@ export const MyTitles: React.FC = () => {
             <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-2xl font-bold text-gray-900">{selectedTitle.landId}</h2>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-400 to-green-600 rounded-xl flex items-center justify-center">
+                      <MapPin className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">{selectedTitle.landId}</h2>
+                      <p className="text-gray-500 flex items-center gap-2">
+                        Asset ID: {selectedTitle.assetId}
+                        {isDemoMode() && selectedTitle.assetId >= 999000 && (
+                          <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium">DEMO TITLE</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
                   <button
                     onClick={() => {
                       setSelectedTitle(null);
                       setTransferSuccess('');
                       setTransferError('');
                     }}
-                    className="text-gray-400 hover:text-gray-600 text-xl"
+                    className="text-gray-400 hover:text-gray-600 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
                   >
                     ×
                   </button>
@@ -286,40 +358,52 @@ export const MyTitles: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Asset ID</label>
-                    <p className="text-gray-900">{selectedTitle.assetId}</p>
+                    <p className="text-gray-900 font-mono bg-gray-50 px-3 py-2 rounded-lg">{selectedTitle.assetId}</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Area</label>
-                    <p className="text-gray-900">{selectedTitle.area}</p>
+                    <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg">{selectedTitle.area}</p>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                    <p className="text-gray-900">{selectedTitle.location}</p>
+                    <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg">{selectedTitle.location}</p>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Municipality</label>
-                    <p className="text-gray-900">{selectedTitle.municipality}</p>
+                    <p className="text-gray-900 bg-gray-50 px-3 py-2 rounded-lg">{selectedTitle.municipality}</p>
                   </div>
                 </div>
 
                 {selectedTitle.documentHash && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Official Document</label>
-                    <a
-                      href={IPFSService.getFileUrl(selectedTitle.documentHash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700"
-                    >
-                      <FileText className="w-4 h-4" />
-                      View Document
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
+                    {isDemoMode() && selectedTitle.assetId >= 999000 ? (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-blue-800 text-sm">
+                          <FileText className="w-4 h-4 inline mr-2" />
+                          Demo document - In production, this would link to the actual IPFS document
+                        </p>
+                      </div>
+                    ) : (
+                      <a
+                        href={IPFSService.getFileUrl(selectedTitle.documentHash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors"
+                      >
+                        <FileText className="w-4 h-4" />
+                        View Document
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    )}
                   </div>
                 )}
 
                 <div className="border-t border-gray-200 pt-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Transfer Ownership</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Send className="w-5 h-5" />
+                    Transfer Ownership
+                  </h3>
                   
                   {transferSuccess && (
                     <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
@@ -345,12 +429,14 @@ export const MyTitles: React.FC = () => {
                         value={transferData.buyerAddress}
                         onChange={(e) => setTransferData({...transferData, buyerAddress: e.target.value})}
                         required
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                         placeholder="Enter buyer's wallet address..."
                       />
-                      <p className="text-sm text-gray-500 mt-1">
-                        The buyer must have opted in to this asset first
-                      </p>
+                      {!isDemoMode() && (
+                        <p className="text-sm text-gray-500 mt-1">
+                          The buyer must have opted in to this asset first
+                        </p>
+                      )}
                     </div>
                     
                     <div>
@@ -363,7 +449,7 @@ export const MyTitles: React.FC = () => {
                         min="0"
                         value={transferData.salePrice}
                         onChange={(e) => setTransferData({...transferData, salePrice: e.target.value})}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                         placeholder="0.0"
                       />
                       <p className="text-sm text-gray-500 mt-1">
@@ -371,20 +457,22 @@ export const MyTitles: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={18} />
-                        <div className="text-sm text-yellow-800">
-                          <p className="font-medium mb-1">Important:</p>
-                          <p>The buyer must have opted in to asset ID {selectedTitle.assetId} before you can transfer it to them.</p>
+                    {!isDemoMode() && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="text-yellow-600 mt-0.5 flex-shrink-0" size={18} />
+                          <div className="text-sm text-yellow-800">
+                            <p className="font-medium mb-1">Important:</p>
+                            <p>The buyer must have opted in to asset ID {selectedTitle.assetId} before you can transfer it to them.</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     <button
                       type="submit"
                       disabled={isTransferring}
-                      className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                      className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-green-400 disabled:to-green-500 text-white py-3 px-6 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105 disabled:transform-none"
                     >
                       {isTransferring ? (
                         <>
@@ -394,7 +482,7 @@ export const MyTitles: React.FC = () => {
                       ) : (
                         <>
                           <Send className="w-5 h-5" />
-                          Transfer Title
+                          {isDemoMode() && selectedTitle.assetId >= 999000 ? 'Demo Transfer' : 'Transfer Title'}
                         </>
                       )}
                     </button>
