@@ -21,14 +21,14 @@ const commonHeaders = {
 // Use proxied URLs in development, direct URLs in production
 const getAlgodUrl = () => {
   if (import.meta.env.DEV) {
-    return '/api/algod';
+    return `${window.location.origin}/api/algod`;
   }
   return import.meta.env.VITE_ALGOD_NODE_URL;
 };
 
 const getIndexerUrl = () => {
   if (import.meta.env.DEV) {
-    return '/api/indexer';
+    return `${window.location.origin}/api/indexer`;
   }
   return import.meta.env.VITE_INDEXER_URL;
 };
