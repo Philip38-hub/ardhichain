@@ -33,67 +33,171 @@ const indexerClient = new algosdk.Indexer(
 );
 
 export class AlgorandService {
+  static async searchAssetsByUnitName(unitName: string): Promise<any[]> {
+    try {
+      console.log(`Searching for assets with unit-name: ${unitName}`);
+      const response = await indexerClient
+        .searchForAssets()
+        .unit(unitName)
+        .do();
+      console.log('Search results:', response);
+      return response.assets || [];
+    } catch (error) {
+      console.error('Error searching for assets:', error);
+      return [];
+    }
+  }
+
+  static getApplicationAddress(appId: number): string {
+    return algosdk.getApplicationAddress(appId).toString();
+  }
+
+  static async getContractAssets(appId: number): Promise<any[]> {
+    try {
+      console.log("Getting assets for contract ID:", appId);
+      const appAddress = this.getApplicationAddress(appId);
+      console.log("Contract address:", appAddress);
+
+      // Get account info directly first
+      const accountInfo = await algodClient.accountInformation(appAddress).do();
+      console.log("Contract account info:", {
+        address: appAddress,
+        amount: accountInfo.amount,
+        totalAssets: accountInfo.assets?.length || 0,
+        appID: appId
+      });
+
+      // Get assets through indexer for more details
+      const assets = await this.getAccountAssets(appAddress);
+      console.log("Contract assets from indexer:", assets.map(asset => ({
+        'asset-id': asset['asset-id'],
+        amount: asset.amount,
+        'is-frozen': asset['is-frozen']
+      })));
+
+      return assets;
+    } catch (error) {
+      console.error("Error getting contract assets:", {
+        error: error instanceof Error ? error.message : error,
+        appId,
+        indexerUrl: import.meta.env.VITE_INDEXER_URL
+      });
+      return [];
+    }
+  }
+
   static async getAccountAssets(address: string): Promise<any[]> {
     try {
-      // Add timeout and better error handling
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      console.log('Fetching account assets for address:', address);
+
+      console.log('Fetching assets for address:', address);
       console.log('Using indexer URL:', import.meta.env.VITE_INDEXER_URL);
       
       const accountInfo = await indexerClient.lookupAccountByID(address).do();
-      clearTimeout(timeoutId);
+      console.log('Raw account info:', accountInfo);
       
-      console.log('Successfully fetched account info');
-      return accountInfo.account.assets || [];
+      const assets = accountInfo.account.assets || [];
+      console.log('Found assets:', assets);
+      
+      return assets;
     } catch (error) {
-      console.error('Error fetching account assets:', error);
-      
-      // Provide more specific error messages
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-          throw new Error(
-            'Unable to connect to Algorand Indexer. Please check your internet connection and try again. ' +
-            'If the problem persists, the Algorand TestNet indexer may be temporarily unavailable.'
-          );
-        } else if (error.message.includes('timeout') || error.name === 'AbortError') {
-          throw new Error(
-            'Request timed out while connecting to Algorand Indexer. Please check your internet connection and try again.'
-          );
-        } else if (error.message.includes('404')) {
-          // Account not found is not necessarily an error - return empty array
-          console.log('Account not found, returning empty assets array');
-          return [];
-        }
+      // Check if this is a 404 "no accounts found" error - this is expected for new/unused addresses
+      if (error instanceof Error && 
+          error.message.includes('status 404') && 
+          error.message.includes('no accounts found for address')) {
+        console.warn(`Account not found in indexer (this is normal for new addresses): ${address}`);
+        console.warn('This typically means the address has not been used yet or the indexer is not fully synced');
+        return [];
       }
       
-      // For other errors, return empty array to prevent app crash
-      console.log('Returning empty array due to error');
+      // For all other errors, log as error and re-throw
+      console.error('Error fetching account assets:', error);
+
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return [];
     }
   }
 
   static async getAssetInfo(assetId: number): Promise<any> {
-    try {
-      console.log('Fetching asset info for ID:', assetId);
-      const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
-      return assetInfo.asset;
-    } catch (error) {
-      console.error('Error fetching asset info:', error);
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second between retries
+    const indexerUrl = import.meta.env.VITE_INDEXER_URL;
+    const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+
+    // First check if the contract holds this asset
+    console.log(`Checking contract (${appId}) assets...`);
+    const contractAssets = await this.getContractAssets(appId);
+    console.log('Contract assets:', contractAssets);
+    
+    const assetInContract = contractAssets.some(asset => {
+      // Get asset ID from either property format
+      const assetIdFromContract = BigInt(asset.assetId || asset['asset-id']);
+      const searchAssetId = BigInt(assetId);
+      const match = assetIdFromContract === searchAssetId;
       
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-          throw new Error(
-            'Unable to connect to Algorand Indexer. Please check your internet connection and try again.'
-          );
-        } else if (error.message.includes('404')) {
-          throw new Error(`Asset with ID ${assetId} not found.`);
+      console.log('Comparing asset IDs:', {
+        fromContract: assetIdFromContract.toString(),
+        searchingFor: searchAssetId.toString(),
+        match
+      });
+      
+      return match;
+    });
+    console.log(`Asset ${assetId} in contract: ${assetInContract}`);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt}/${maxRetries}: Fetching asset info for ID ${assetId} from ${indexerUrl}`);
+        
+        // Try direct HTTP request first to check raw response
+        const directResponse = await fetch(`${indexerUrl}/v2/assets/${assetId}`);
+        console.log(`Direct API Response:`, {
+          status: directResponse.status,
+          statusText: directResponse.statusText,
+          contractHoldsAsset: assetInContract
+        });
+        
+        // Now try with the SDK
+        const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
+        console.log('Asset info response:', assetInfo);
+        return assetInfo.asset;
+      } catch (error) {
+        // Check if this is a 404 error
+        if (error instanceof Error && error.message.includes('status 404')) {
+          console.warn(`Attempt ${attempt}: Asset not found for asset-id: ${assetId}`);
+          console.warn('Diagnostic information:');
+          console.warn(`1. Network: ${indexerUrl} (testnet)`);
+          console.warn(`2. Asset ID: ${assetId}`);
+          console.warn('3. Common causes:');
+          console.warn('   - Asset exists but indexer is not synced');
+          console.warn('   - Asset was recently created');
+          console.warn('   - Asset exists on different network');
+          
+          if (attempt < maxRetries) {
+            console.log(`Waiting ${retryDelay}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            continue;
+          }
         }
+
+        // For other errors, log details and rethrow
+        console.error('Error fetching asset info:', {
+          attempt,
+          error: error instanceof Error ? error.message : error,
+          assetId,
+          indexerUrl
+        });
+
+        if (attempt === maxRetries) {
+          throw error;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
-      
-      return null;
     }
+    return null;
   }
 
   static async getAssetTransactions(assetId: number): Promise<any[]> {
@@ -116,6 +220,136 @@ export class AlgorandService {
       }
       
       return [];
+    }
+  }
+
+  static async adminTransferTitle(
+    adminAccount: string,
+    assetId: number,
+    receiverAddress: string,
+    peraWallet: any
+  ): Promise<void> {
+    try {
+      console.log("Starting admin transfer:", { adminAccount, assetId, receiverAddress });
+      
+      // Get suggested parameters
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+      
+      // Create ABI contract instance
+      const contractSpec = {
+        name: "LandTitle",
+        methods: [
+          {
+            name: "admin_transfer_title",
+            args: [
+              { type: "uint64", name: "asset_id" },
+              { type: "address", name: "receiver" }
+            ],
+            returns: { type: "void" }
+          }
+        ]
+      };
+
+      const contract = new algosdk.ABIContract(contractSpec);
+      const adminTransferMethod = contract.getMethodByName("admin_transfer_title");
+      
+      // Create AtomicTransactionComposer
+      const atc = new algosdk.AtomicTransactionComposer();
+      
+      // Create signer
+      const signer = (txnGroup: algosdk.Transaction[]): Promise<Uint8Array[]> => {
+        return peraWallet.signTransaction([
+          txnGroup.map(txn => ({
+            txn: txn,
+            signers: [adminAccount]
+          }))
+        ]).then((signed: any) => Array.isArray(signed) ? signed.flat() : [signed]);
+      };
+      
+      // Add method call
+      atc.addMethodCall({
+        appID: appId,
+        method: adminTransferMethod,
+        sender: adminAccount,
+        suggestedParams: suggestedParams,
+        methodArgs: [assetId, receiverAddress],
+        signer
+      });
+
+      // Execute the transaction
+      console.log("Executing admin transfer transaction...");
+      const result = await atc.execute(algodClient, 4);
+      console.log("Admin transfer completed successfully:", result.txIDs);
+      
+    } catch (error) {
+      console.error("Error in admin transfer:", error);
+      throw new Error(`Failed to transfer title: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  static async userTransferTitle(
+    senderAccount: string,
+    assetId: number,
+    receiverAddress: string,
+    peraWallet: any
+  ): Promise<void> {
+    try {
+      console.log("Starting user transfer:", { senderAccount, assetId, receiverAddress });
+      
+      // Get suggested parameters
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const appId = parseInt(import.meta.env.VITE_APP_ID || '0');
+      
+      // Create ABI contract instance
+      const contractSpec = {
+        name: "LandTitle",
+        methods: [
+          {
+            name: "user_transfer_title",
+            args: [
+              { type: "uint64", name: "asset_id" },
+              { type: "address", name: "receiver" }
+            ],
+            returns: { type: "void" }
+          }
+        ]
+      };
+
+      const contract = new algosdk.ABIContract(contractSpec);
+      const userTransferMethod = contract.getMethodByName("user_transfer_title");
+      
+      // Create AtomicTransactionComposer
+      const atc = new algosdk.AtomicTransactionComposer();
+      
+      // Create signer
+      const signer = (txnGroup: algosdk.Transaction[]): Promise<Uint8Array[]> => {
+        return peraWallet.signTransaction([
+          txnGroup.map(txn => ({
+            txn: txn,
+            signers: [senderAccount]
+          }))
+        ]).then((signed: any) => Array.isArray(signed) ? signed.flat() : [signed]);
+      };
+      
+      // Add method call
+      atc.addMethodCall({
+        appID: appId,
+        method: userTransferMethod,
+        sender: senderAccount,
+        suggestedParams: suggestedParams,
+        methodArgs: [assetId, receiverAddress],
+        signer
+      });
+
+      // Execute the transaction
+      console.log("Executing user transfer transaction...");
+      const result = await atc.execute(algodClient, 4);
+      console.log("User transfer completed successfully:", result.txIDs);
+      
+    } catch (error) {
+      console.error("Error in user transfer:", error);
+      throw new Error(`Failed to transfer title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -538,5 +772,16 @@ export class AlgorandService {
       }
       throw new Error(`Failed to create title: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+
+  // Legacy method for backward compatibility
+  static async transferAsset(
+    senderAccount: string,
+    receiverAddress: string,
+    assetId: number,
+    peraWallet: any
+  ): Promise<void> {
+    return this.userTransferTitle(senderAccount, assetId, receiverAddress, peraWallet);
   }
 }

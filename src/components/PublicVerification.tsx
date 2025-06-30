@@ -29,25 +29,98 @@ export const PublicVerification: React.FC = () => {
       const assetInfo = await AlgorandService.getAssetInfo(parseInt(assetId));
       
       if (!assetInfo) {
-        setError('Asset not found');
+        setError(`Asset ${assetId} not found. Please verify the asset ID and try again.`);
         return;
       }
 
-      if (assetInfo.params?.['unit-name'] !== 'ARDHI') {
-        setError('This asset is not a valid ArdhiChain land title');
+      console.log('Asset params:', {
+        unitName: assetInfo.params?.['unit-name'],
+        url: assetInfo.params?.url,
+        creator: assetInfo.params?.creator,
+        total: assetInfo.params?.total,
+        decimals: assetInfo.params?.decimals,
+        defaultFrozen: assetInfo.params?.['default-frozen'],
+        name: assetInfo.params?.name
+      });
+
+      // Enhanced validation for ArdhiChain land titles
+      const isLandTitle = (
+        // Check if it follows land title naming pattern (LR/YYYY/NNN)
+        /^LR\/\d{4}\/\d+$/.test(assetInfo.params?.name || '') &&
+        // Check if it has metadata URL (IPFS)
+        (assetInfo.params?.url?.startsWith('ipfs://') || assetInfo.params?.url?.length > 0) &&
+        // Check if it's a non-divisible token (NFT)
+        assetInfo.params?.decimals === 0 &&
+        // Check if total supply is 1 (NFT)
+        assetInfo.params?.total === 1n &&
+        // Check if it has the ARDHI unit name (optional but preferred)
+        (assetInfo.params?.['unit-name'] === 'ARDHI' || assetInfo.params?.['unit-name'] === undefined)
+      );
+
+      if (!isLandTitle) {
+        // Provide more specific error messages based on what's wrong
+        const issues = [];
+        
+        if (!/^LR\/\d{4}\/\d+$/.test(assetInfo.params?.name || '')) {
+          issues.push(`Invalid land ID format: "${assetInfo.params?.name}" (expected format: LR/YYYY/NNN)`);
+        }
+        
+        if (!assetInfo.params?.url || assetInfo.params.url.length === 0) {
+          issues.push('No metadata URL found');
+        }
+        
+        if (assetInfo.params?.decimals !== 0) {
+          issues.push(`Invalid decimals: ${assetInfo.params?.decimals} (expected: 0 for NFT)`);
+        }
+        
+        if (assetInfo.params?.total !== 1n) {
+          issues.push(`Invalid total supply: ${assetInfo.params?.total?.toString()} (expected: 1 for NFT)`);
+        }
+
+        setError(`This asset does not appear to be a valid ArdhiChain land title. Issues found:\n${issues.join('\n')}`);
         return;
       }
 
-      // Get current owner by finding who has balance > 0
-      // For simplicity, we'll use the creator as owner initially
-      const currentOwner = assetInfo.params.creator;
+      // Get current owner by checking who has the asset
+      let currentOwner = assetInfo.params.creator; // Default to creator
+      
+      // Try to find the actual current owner by checking asset holdings
+      try {
+        const transactions = await AlgorandService.getAssetTransactions(parseInt(assetId));
+        
+        // Find the most recent transfer transaction to determine current owner
+        const transferTxns = transactions.filter(tx => 
+          tx['tx-type'] === 'axfer' && 
+          tx['asset-transfer-transaction']?.['asset-id'] === parseInt(assetId)
+        );
+        
+        if (transferTxns.length > 0) {
+          // Sort by round number to get the most recent
+          transferTxns.sort((a, b) => b['confirmed-round'] - a['confirmed-round']);
+          const latestTransfer = transferTxns[0];
+          currentOwner = latestTransfer['asset-transfer-transaction']?.receiver || currentOwner;
+        }
+      } catch (ownerError) {
+        console.warn('Could not determine current owner from transactions, using creator as fallback');
+      }
 
       // Fetch metadata
       let metadata: PropertyMetadata | null = null;
       const metadataUrl = assetInfo.params.url;
-      if (metadataUrl?.startsWith('ipfs://')) {
-        const cid = metadataUrl.replace('ipfs://', '');
-        metadata = await IPFSService.fetchJSON(cid);
+      if (metadataUrl) {
+        try {
+          if (metadataUrl.startsWith('ipfs://')) {
+            const cid = metadataUrl.replace('ipfs://', '');
+            metadata = await IPFSService.fetchJSON(cid);
+          } else if (metadataUrl.length > 0) {
+            // Handle non-IPFS URLs or CID-only formats
+            const cid = metadataUrl.startsWith('Qm') ? metadataUrl : metadataUrl;
+            metadata = await IPFSService.fetchJSON(cid);
+          }
+        } catch (metadataError) {
+          console.warn('Could not fetch metadata:', metadataError);
+          // Continue without metadata - the asset is still valid
+        }
       }
 
       // Get transaction history
@@ -62,7 +135,21 @@ export const PublicVerification: React.FC = () => {
 
     } catch (error) {
       console.error('Verification error:', error);
-      setError('Failed to verify asset. Please check the Asset ID and try again.');
+      if (error instanceof Error) {
+        if (error.message.includes('status 404')) {
+          setError(`Asset ID ${assetId} not found. This could mean:
+          1. The asset ID is incorrect
+          2. The asset was recently created (wait a few minutes)
+          3. The asset exists on a different network
+          4. The indexer is not fully synced`);
+        } else if (error.message.includes('network')) {
+          setError('Network error. Please check your internet connection and try again.');
+        } else {
+          setError(`Failed to verify asset: ${error.message}`);
+        }
+      } else {
+        setError('Failed to verify asset. Please check the Asset ID and try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -106,7 +193,7 @@ export const PublicVerification: React.FC = () => {
           </form>
 
           {error && (
-            <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+            <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg whitespace-pre-line">
               {error}
             </div>
           )}
@@ -167,7 +254,11 @@ export const PublicVerification: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <p className="text-gray-600">No metadata available for this asset.</p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-yellow-800">
+                    <strong>Note:</strong> Metadata could not be loaded for this asset, but the asset appears to be a valid ArdhiChain land title based on its structure.
+                  </p>
+                </div>
               )}
             </div>
 
